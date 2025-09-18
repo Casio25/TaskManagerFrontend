@@ -10,7 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@babel/runtime": "^7.28.4",
     "date-fns": "^4.1.0",
+    "next-utils": "^0.2.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.1",

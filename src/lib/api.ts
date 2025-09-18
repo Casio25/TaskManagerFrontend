@@ -1,10 +1,44 @@
-export type User = {
+﻿export type User = {
   id: number;
   email: string;
   name: string;
   role: 'ADMIN' | 'MEMBER';
   createdAt: string;
   updatedAt: string;
+};
+
+export type ProjectTaskSummary = {
+  id: number;
+  title: string;
+  description?: string | null;
+  status: string;
+  deadline: string | null;
+  tags: string[];
+};
+
+export type ProjectOverview = {
+  id: number;
+  name: string;
+  description?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+  deadline?: string | null;
+  tasks: ProjectTaskSummary[];
+};
+
+export type NewProjectTaskPayload = {
+  title: string;
+  description?: string | null;
+  tags: string[];
+  deadline: string;
+};
+
+export type CreateProjectPayload = {
+  name: string;
+  description?: string;
+  groupId?: number;
+  deadline: string;
+  tasks: NewProjectTaskPayload[];
 };
 
 export type AuthResponse = {
@@ -43,13 +77,13 @@ export const api = {
 
   me: () => http<User>('/auth/me', { headers: getHeaders(true) }),
 
-  projectsMine: () => http<{ admin: any[]; member: any[] }>(
+  projectsMine: () => http<{ admin: ProjectOverview[]; member: ProjectOverview[] }>(
     '/projects/mine',
     { headers: getHeaders(true) },
   ),
 
-  createProject: (data: { name: string; description?: string; groupId?: number; deadline: string }) =>
-    http<any>('/projects', { method: 'POST', headers: getHeaders(true), body: JSON.stringify(data) }),
+  createProject: (data: CreateProjectPayload) =>
+    http<ProjectOverview>('/projects', { method: 'POST', headers: getHeaders(true), body: JSON.stringify(data) }),
 
   createProjectInvite: (projectId: number, data: { email: string; expiresInDays?: number }) =>
     http<{ invite: any; link: string }>(`/projects/${projectId}/invitations`, {

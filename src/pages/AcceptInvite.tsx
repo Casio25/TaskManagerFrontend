@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 export default function AcceptInvitePage() {
   const [search] = useSearchParams();
   const initialToken = search.get('token') || '';
+  const { dictionary } = useI18n();
   const [token, setToken] = useState(initialToken);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -24,9 +26,9 @@ export default function AcceptInvitePage() {
     setSuccess(null);
     try {
       await api.acceptProjectInvite(token);
-      setSuccess('Invitation accepted successfully');
+      setSuccess(dictionary.invites.success);
     } catch (e: any) {
-      setError(e.message || 'Failed to accept invitation');
+      setError(e.message || dictionary.invites.error);
     } finally {
       setLoading(false);
     }
@@ -34,14 +36,20 @@ export default function AcceptInvitePage() {
 
   return (
     <div className="container" style={{ maxWidth: 680 }}>
-      <h2>Accept Invitation</h2>
-      <p className="muted">Paste your invite token or open the invite link you received.</p>
+      <h2>{dictionary.invites.title}</h2>
+      <p className="muted">{dictionary.invites.description}</p>
       <div className="auth-card">
         <label>
-          Token
-          <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="<inviteId>.<secret>" />
+          {dictionary.invites.token}
+          <input
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder={dictionary.invites.placeholder}
+          />
         </label>
-        <button onClick={onAccept} disabled={loading || !token}>{loading ? 'Accepting...' : 'Accept'}</button>
+        <button onClick={onAccept} disabled={loading || !token}>
+          {loading ? dictionary.invites.accepting : dictionary.invites.submit}
+        </button>
         {success && <p style={{ color: '#34d399' }}>{success}</p>}
         {error && <p className="error">{error}</p>}
       </div>

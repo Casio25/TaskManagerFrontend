@@ -12,7 +12,8 @@ import {
   startOfWeek,
   subMonths,
 } from 'date-fns';
-import { api } from '../lib/api';
+import { api, type ProjectOverview } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 type CalendarTask = {
   id: number;
@@ -24,11 +25,7 @@ type CalendarTask = {
   assignedGroup?: { id: number; name: string } | null;
 };
 
-type ProjectSummary = {
-  id: number;
-  name: string;
-  deadline?: string | null;
-};
+type ProjectSummary = Pick<ProjectOverview, 'id' | 'name' | 'deadline'>;
 
 type RemainingTone = 'ok' | 'warn' | 'danger' | 'muted';
 type DayEvent =
@@ -37,7 +34,7 @@ type DayEvent =
 
 type RangeFilter = { from?: Date; to?: Date };
 
-const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 function safeDate(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -45,22 +42,23 @@ function safeDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function formatDeadline(deadline: string | null | undefined) {
+function formatDeadline(deadline: string | null | undefined, t: Translate) {
   const date = safeDate(deadline);
-  if (!date) return 'No deadline';
+  if (!date) return t('deadlines.none');
   return date.toLocaleString();
 }
 
-function computeRemaining(deadline: string | null | undefined): { label: string; tone: RemainingTone } {
+function computeRemaining(deadline: string | null | undefined, t: Translate): { label: string; tone: RemainingTone } {
   const date = safeDate(deadline);
-  if (!date) return { label: 'No deadline', tone: 'muted' };
+  if (!date) return { label: t('deadlines.none'), tone: 'muted' };
   const diffMs = date.getTime() - Date.now();
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays > 1) return { label: `${diffDays} days left`, tone: 'ok' };
-  if (diffDays === 1) return { label: '1 day left', tone: 'warn' };
-  if (diffDays === 0) return { label: 'Due today', tone: 'warn' };
+  if (diffDays > 1) return { label: t('deadlines.daysLeft', { count: diffDays }), tone: 'ok' };
+  if (diffDays === 1) return { label: t('deadlines.dayLeft'), tone: 'warn' };
+  if (diffDays === 0) return { label: t('deadlines.dueToday'), tone: 'warn' };
   const overdue = Math.abs(diffDays);
-  return { label: `Overdue by ${overdue} day${overdue === 1 ? '' : 's'}`, tone: 'danger' };
+  if (overdue === 1) return { label: t('deadlines.overdueOne'), tone: 'danger' };
+  return { label: t('deadlines.overdueMany', { count: overdue }), tone: 'danger' };
 }
 
 function parseRangeParams(params?: { from?: string; to?: string }): RangeFilter {
@@ -77,6 +75,7 @@ function parseRangeParams(params?: { from?: string; to?: string }): RangeFilter 
 }
 
 export default function CalendarMePage() {
+  const { dictionary, t } = useI18n();
   const [tasks, setTasks] = useState<CalendarTask[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>({});
@@ -134,22 +133,22 @@ export default function CalendarMePage() {
         const [taskData, projectData] = await Promise.all([api.calendarMe(params), api.projectsMine()]);
         setTasks(taskData);
         const map = new Map<number, ProjectSummary>();
-        projectData.admin.forEach((p: ProjectSummary) => {
-          map.set(p.id, { id: p.id, name: p.name, deadline: p.deadline });
+        projectData.admin.forEach((p) => {
+          map.set(p.id, { id: p.id, name: p.name, deadline: p.deadline ?? null });
         });
-        projectData.member.forEach((p: ProjectSummary) => {
+        projectData.member.forEach((p) => {
           if (!map.has(p.id)) {
-            map.set(p.id, { id: p.id, name: p.name, deadline: p.deadline });
+            map.set(p.id, { id: p.id, name: p.name, deadline: p.deadline ?? null });
           }
         });
         setProjects(Array.from(map.values()));
       } catch (e: any) {
-        setError(e.message || 'Failed to load calendar');
+        setError(e.message || dictionary.calendar.loadFailed);
       } finally {
         setLoading(false);
       }
     },
-    [],
+    [dictionary.calendar.loadFailed],
   );
 
   useEffect(() => {
@@ -223,39 +222,49 @@ export default function CalendarMePage() {
       .sort((a, b) => (a.date!.getTime() - b.date!.getTime()));
   }, [projects, rangeFilter]);
 
+  const weekdays = dictionary.calendar.weekdays;
+
   return (
     <div className="container">
-      <h2>My Calendar</h2>
-      <p className="muted">View all tasks assigned to you (or your groups) with upcoming deadlines.</p>
+      <h2>{dictionary.calendar.title}</h2>
+      <p className="muted">{dictionary.calendar.description}</p>
 
       <form className="filter" onSubmit={onFilter}>
         <div className="filter-field">
           <label>
-            From
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            {dictionary.calendar.filter.from}
+            <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
           </label>
         </div>
         <div className="filter-field">
           <label>
-            To
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            {dictionary.calendar.filter.to}
+            <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
           </label>
         </div>
         <div className="filter-actions">
-          <button type="submit" disabled={loading}>Apply</button>
-          <button type="button" className="secondary" onClick={onReset} disabled={loading}>Reset</button>
+          <button type="submit" disabled={loading}>{dictionary.calendar.filter.apply}</button>
+          <button type="button" className="secondary" onClick={onReset} disabled={loading}>
+            {dictionary.calendar.filter.reset}
+          </button>
         </div>
       </form>
 
       <section className="calendar-card">
         <div className="calendar-toolbar">
-          <button type="button" onClick={goPrevMonth} aria-label="Previous month">&lt;</button>
+          <button type="button" onClick={goPrevMonth} aria-label={dictionary.calendar.toolbar.previous}>
+            &lt;
+          </button>
           <div className="calendar-title">{format(viewDate, 'MMMM yyyy')}</div>
-          <button type="button" onClick={goNextMonth} aria-label="Next month">&gt;</button>
-          <button type="button" className="secondary" onClick={goToday}>Today</button>
+          <button type="button" onClick={goNextMonth} aria-label={dictionary.calendar.toolbar.next}>
+            &gt;
+          </button>
+          <button type="button" className="secondary" onClick={goToday}>
+            {dictionary.calendar.toolbar.today}
+          </button>
         </div>
         <div className="calendar-grid">
-          {WEEKDAY_LABELS.map((day) => (
+          {weekdays.map((day) => (
             <div key={day} className="calendar-weekday">{day}</div>
           ))}
           {calendarDays.map((day) => {
@@ -279,18 +288,20 @@ export default function CalendarMePage() {
                     if (event.type === 'task') {
                       return (
                         <span key={`task-${event.task.id}`} className="calendar-item">
-                          {event.task.project?.name ?? 'Project'}: {event.task.title}
+                          {(event.task.project?.name ?? dictionary.calendar.table.project)}: {event.task.title}
                         </span>
                       );
                     }
                     return (
                       <span key={`project-${event.project.id}`} className="calendar-item project">
-                        Project deadline: {event.project.name}
+                        {t('calendar.calendarItem.project', { name: event.project.name })}
                       </span>
                     );
                   })}
                   {dayEvents.length > 3 && (
-                    <span className="calendar-item more">+{dayEvents.length - 3} more</span>
+                    <span className="calendar-item more">
+                      {t('calendar.calendarItem.more', { count: dayEvents.length - 3 })}
+                    </span>
                   )}
                 </div>
               </div>
@@ -299,38 +310,40 @@ export default function CalendarMePage() {
         </div>
       </section>
 
-      {loading && <p>Loading...</p>}
+      {loading && <p>{dictionary.errors.loading}</p>}
       {error && <p className="error">{error}</p>}
 
       {!loading && !error && (
         <>
           <div className="table-wrapper">
             {tasks.length === 0 ? (
-              <p className="muted">No tasks with deadlines in this range.</p>
+              <p className="muted">{dictionary.calendar.table.noTasks}</p>
             ) : (
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Task</th>
-                    <th>Project</th>
-                    <th>Deadline</th>
-                    <th>Status</th>
-                    <th>Remaining</th>
+                    <th>{dictionary.calendar.table.task}</th>
+                    <th>{dictionary.calendar.table.project}</th>
+                    <th>{dictionary.calendar.table.deadline}</th>
+                    <th>{dictionary.calendar.table.status}</th>
+                    <th>{dictionary.calendar.table.remaining}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {tasks.map((task) => {
-                    const remaining = computeRemaining(task.deadline);
+                    const remaining = computeRemaining(task.deadline, t);
                     return (
                       <tr key={task.id}>
                         <td>
                           <div className="task-title">{task.title}</div>
                           {task.assignedGroup && (
-                            <div className="muted small">Group: {task.assignedGroup.name}</div>
+                            <div className="muted small">
+                              {t('calendar.table.group', { name: task.assignedGroup.name })}
+                            </div>
                           )}
                         </td>
                         <td>{task.project?.name ?? '-'}</td>
-                        <td>{formatDeadline(task.deadline)}</td>
+                        <td>{formatDeadline(task.deadline, t)}</td>
                         <td>{task.status}</td>
                         <td>
                           <span className={`badge badge-${remaining.tone}`}>{remaining.label}</span>
@@ -345,7 +358,7 @@ export default function CalendarMePage() {
 
           {projectDeadlines.length > 0 && (
             <section className="calendar-card" style={{ marginTop: 16 }}>
-              <h3>Project Deadlines</h3>
+              <h3>{dictionary.calendar.projectDeadlines.title}</h3>
               <ul className="project-deadline-list">
                 {projectDeadlines.map(({ project, date }) => (
                   <li key={project.id}>
