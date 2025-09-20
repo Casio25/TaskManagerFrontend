@@ -1,4 +1,5 @@
-﻿import { NavLink, Outlet } from 'react-router-dom';
+﻿import { useEffect } from 'react';
+import { NavLink, Outlet } from 'react-router-dom';
 import { useTheme } from './lib/theme';
 import { useI18n, type Language } from './lib/i18n';
 import './styles/global.scss';
@@ -6,6 +7,10 @@ import './styles/global.scss';
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const { dictionary, language, setLanguage } = useI18n();
+  useEffect(() => {
+    document.title = dictionary.app.brand;
+  }, [dictionary.app.brand]);
+
 
   const themeLabel = theme === 'light' ? dictionary.app.themeToggle.dark : dictionary.app.themeToggle.light;
   const themeIcon = theme === 'light' ? dictionary.app.themeToggle.darkIcon : dictionary.app.themeToggle.lightIcon;
@@ -19,6 +24,7 @@ export default function App() {
           <NavLink to="/register">{dictionary.app.nav.register}</NavLink>
           <NavLink to="/dashboard">{dictionary.app.nav.dashboard}</NavLink>
           <NavLink to="/projects">{dictionary.app.nav.createProject}</NavLink>
+          <NavLink to="/participants">{dictionary.app.nav.participants}</NavLink>
           <NavLink to="/calendar">{dictionary.app.nav.calendar}</NavLink>
           <NavLink to="/invites/accept">{dictionary.app.nav.acceptInvite}</NavLink>
           <button type="button" className="theme-toggle" onClick={toggleTheme}>
@@ -41,4 +47,8 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
 

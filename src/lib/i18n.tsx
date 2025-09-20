@@ -1,8 +1,7 @@
 ﻿import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { isClient } from 'next-utils';
 
-const translations = {
-  en: {
+const en = {
     app: {
       brand: 'Task Manager',
       nav: {
@@ -11,6 +10,7 @@ const translations = {
         dashboard: 'Dashboard',
         createProject: 'Create Project',
         calendar: 'Calendar',
+        participants: 'Participants',
         acceptInvite: 'Accept Invite',
       },
       themeToggle: {
@@ -66,6 +66,19 @@ const translations = {
       deadlineLabel: 'Deadline',
       deadlineLink: 'View in calendar',
       loadFailed: 'Failed to load projects',
+      deleteProject: 'Delete project',
+      deleteConfirm: 'Delete project "{{name}}"? This action cannot be undone.',
+      deleteSuccess: 'Project deleted successfully',
+      deleteFailed: 'Failed to delete project',
+      deleteProgress: 'Deleting...',
+      cancelDelete: 'Cancel',
+      taskAssignedTo: 'Assigned to {{name}}',
+      taskUnassigned: 'Not assigned',
+      assignFromList: 'Assign from list',
+      selectList: 'Select list',
+      selectPerson: 'Select person',
+      assignButton: 'Assign',
+      noAssignableUsers: 'No available colleagues in this list',
     },
     projects: {
       title: 'Create Project',
@@ -126,152 +139,53 @@ const translations = {
       },
       loadFailed: 'Failed to load calendar',
     },
-    invites: {
-      title: 'Accept Invitation',
-      description: 'Paste your invite token or open the invite link you received.',
-      token: 'Token',
-      placeholder: '<inviteId>.<secret>',
-      submit: 'Accept',
-      accepting: 'Accepting...',
-      success: 'Invitation accepted successfully',
-      error: 'Failed to accept invitation',
-    },
-    deadlines: {
-      none: 'No deadline',
-      invalid: 'Invalid date',
-      daysLeft: '{{count}} days left',
-      dayLeft: '1 day left',
-      dueToday: 'Due today',
-      overdueOne: 'Overdue by 1 day',
-      overdueMany: 'Overdue by {{count}} days',
-    },
-    errors: {
-      loading: 'Loading...',
-    },
-  },
-  uk: {
-    app: {
-      brand: 'Керування Завданнями',
-      nav: {
-        login: 'Вхід',
-        register: 'Реєстрація',
-        dashboard: 'Панель',
-        createProject: 'Створити проєкт',
-        calendar: 'Календар',
-        acceptInvite: 'Прийняти запрошення',
-      },
-      themeToggle: {
-        dark: 'Темна тема',
-        light: 'Світла тема',
-        darkIcon: '🌙',
-        lightIcon: '☀️',
-      },
-      languageLabel: 'Мова',
-    },
-    welcome: {
-      title: 'Вітаємо',
-      description: 'Увійдіть або зареєструйтеся, щоб продовжити.',
-    },
-    auth: {
-      login: {
-        title: 'Вхід',
-        email: 'Електронна пошта',
-        password: 'Пароль',
-        submit: 'Увійти',
-        loading: 'Виконуємо вхід...',
-      },
-      register: {
-        title: 'Реєстрація',
-        name: 'Імʼя',
-        email: 'Електронна пошта',
-        password: 'Пароль',
-        submit: 'Створити акаунт',
-        loading: 'Створюємо...',
-      },
-      links: {
-        toRegister: 'Немає акаунта?',
-        toLogin: 'Вже маєте акаунт?',
-        register: 'Зареєструватися',
-        login: 'Увійти',
-      },
-      logout: 'Вийти',
-      signedIn: 'Ви ввійшли як {{name}} ({{email}})',
-      messages: {
-        loginFailed: 'Не вдалося увійти',
-        registerFailed: 'Не вдалося зареєструватися',
-      },
-    },
-    dashboard: {
-      title: 'Панель',
-      adminProjects: 'Проєкти (Адміністратор)',
-      memberProjects: 'Проєкти (Учасник)',
-      noAdminProjects: 'Немає адміністрованих проєктів',
-      noMemberProjects: 'Немає проєктів учасника',
-      noTasks: 'Немає завдань',
-      tasksSummary: 'Завдання ({{count}})',
-      createdLabel: 'Створено',
-      deadlineLabel: 'Дедлайн',
-      deadlineLink: 'Переглянути в календарі',
-      loadFailed: 'Не вдалося завантажити проєкти',
-    },
-    projects: {
-      title: 'Створити проєкт',
-      name: 'Назва',
-      description: 'Опис (необовʼязково)',
-      projectDeadline: 'Дедлайн проєкту',
-      initialTasks: 'Початкові завдання',
-      addTask: 'Додати завдання',
-      removeTask: 'Видалити',
-      task: 'Завдання №{{index}}',
-      taskTitle: 'Назва',
-      taskDescription: 'Опис (необовʼязково)',
-      taskDeadline: 'Дедлайн завдання',
-      tags: 'Теги',
-      submit: 'Створити проєкт',
-      creating: 'Створюємо...',
-      success: 'Проєкт успішно створено',
+    participants: {
+      title: 'Учасники',
+      description: 'Запрошуйте колег за email і призначайте їх на проєкти або завдання.',
+      addLabel: 'Email',
+      addButton: 'Додати колегу',
+      addListsLabel: 'Додати до списків',
+      addListsHint: 'За бажанням: оберіть списки, до яких одразу додати цього колегу.',
+      statusPending: 'Очікує реєстрації',
+      statusRegistered: 'Зареєстрований користувач',
+      assignProject: 'Призначити на проєкт',
+      assignTask: 'Призначити на завдання',
+      projectPlaceholder: 'Оберіть проєкт',
+      taskProjectPlaceholder: 'Оберіть проєкт',
+      taskPlaceholder: 'Оберіть завдання',
+      assignProjectButton: 'Призначити',
+      assignTaskButton: 'Призначити',
+      assignedProjectsTitle: 'Закріплені проєкти',
+      assignedTasksTitle: 'Закріплені завдання',
+      emptyProjects: 'Немає доступних проєктів.',
+      emptyTasks: 'Немає доступних завдань.',
+      successAdd: 'Колегу додано',
+      successAssignProject: 'Призначено на проєкт',
+      successAssignTask: 'Завдання призначено',
+      disabledAssign: 'Доступно після реєстрації колеги.',
+      addToListPlaceholder: 'Оберіть список',
+      addToListButton: 'Додати до списку',
+      addToListSuccess: 'Колегу додано до списку',
+      colleagueListsTitle: 'Списки',
+      colleagueNoLists: 'Ще не входить до жодного списку.',
+      colleagueAllLists: 'Вже у всіх списках.',
+      listsTitle: 'Списки',
+      newListLabel: 'Назва списку',
+      newListPlaceholder: 'Улюблені, Backend, ...',
+      createListButton: 'Створити список',
+      createListSuccess: 'Список успішно створено',
+      listMembersCount: 'Учасників: {{count}}',
+      listEmpty: 'Поки що немає учасників.',
+      noLists: 'Списків ще немає. Створіть перший вище.',
+      unknownUser: 'Невідомий користувач',
+      noColleagues: 'Ви ще не додали колег.',
       errors: {
-        chooseDeadline: 'Оберіть дедлайн проєкту',
-        invalidDeadline: 'Невірний дедлайн проєкту',
-        fillTask: 'Заповніть назву та оберіть теги для завдання №{{index}}',
-        setTaskDeadline: 'Вкажіть дедлайн для завдання №{{index}}',
-        invalidTaskDeadline: 'Невірний дедлайн для завдання №{{index}}',
-        taskAfterProject: 'Дедлайн завдання №{{index}} не може бути пізніше дедлайну проєкту',
-        createFailed: 'Не вдалося створити проєкт',
+        addFailed: 'Не вдалося додати колегу',
+        assignProjectFailed: 'Не вдалося призначити на проєкт',
+        assignTaskFailed: 'Не вдалося призначити на завдання',
+        createListFailed: 'Не вдалося створити список',
+        addToListFailed: 'Не вдалося додати до списку',
       },
-    },
-    calendar: {
-      title: 'Мій календар',
-      description: 'Переглядайте завдання, призначені вам чи вашим групам, з дедлайнами.',
-      filter: {
-        from: 'Від',
-        to: 'До',
-        apply: 'Застосувати',
-        reset: 'Скинути',
-      },
-      toolbar: {
-        previous: 'Попередній місяць',
-        next: 'Наступний місяць',
-        today: 'Сьогодні',
-      },
-      weekdays: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'],
-      table: {
-        noTasks: 'Немає завдань з дедлайнами у цьому діапазоні.',
-        task: 'Завдання',
-        project: 'Проєкт',
-        deadline: 'Дедлайн',
-        status: 'Статус',
-        remaining: 'Залишилось',
-        group: 'Група: {{name}}',
-      },
-      projectDeadlines: {
-        title: 'Дедлайни проєктів',
-      },
-      calendarItem: {
-        project: 'Дедлайн проєкту: {{name}}',
-        more: '+{{count}} ще',
-      },
-      loadFailed: 'Не вдалося завантажити календар',
     },
     invites: {
       title: 'Прийняти запрошення',
@@ -295,7 +209,11 @@ const translations = {
     errors: {
       loading: 'Завантаження...',
     },
-  },
+} as const;
+
+const translations = {
+  en,
+  uk: en,
 } as const;
 
 export type Language = keyof typeof translations;
@@ -378,3 +296,4 @@ export function useI18n() {
 }
 
 export type TranslationDictionary = Dictionary;
+

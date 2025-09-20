@@ -1,4 +1,4 @@
-﻿export type User = {
+export type User = {
   id: number;
   email: string;
   name: string;
@@ -14,6 +14,7 @@ export type ProjectTaskSummary = {
   status: string;
   deadline: string | null;
   tags: string[];
+  assignedTo?: { id: number; name: string; email: string } | null;
 };
 
 export type ProjectOverview = {
@@ -41,6 +42,50 @@ export type CreateProjectPayload = {
   tasks: NewProjectTaskPayload[];
 };
 
+export type ParticipantProject = { id: number; name: string };
+export type ParticipantTask = { id: number; title: string; projectId: number };
+
+export type Colleague = {
+  id: number;
+  email: string;
+  createdAt: string;
+  updatedAt: string;
+  contact: { id: number; email: string; name: string; role: 'ADMIN' | 'MEMBER' } | null;
+  assignedProjects: ParticipantProject[];
+  assignedTasks: ParticipantTask[];
+  lists: { id: number; name: string }[];
+};
+
+export type ColleagueListMember = {
+  id: number;
+  colleagueId: number;
+  colleague: {
+    id: number;
+    email: string;
+    contact: { id: number; email: string; name: string; role: 'ADMIN' | 'MEMBER' } | null;
+  } | null;
+};
+
+export type ColleagueList = {
+  id: number;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  members: ColleagueListMember[];
+};
+
+export type ProjectTaskDetail = {
+  id: number;
+  title: string;
+  description?: string | null;
+  status: string;
+  deadline: string | null;
+  assignedTo?: { id: number; name: string; email: string } | null;
+  project: { id: number; name: string };
+};
+
+export type AssignTaskResponse = Colleague & { lastAssignedTask?: ProjectTaskDetail };
+
 export type AuthResponse = {
   user: User;
   access_token: string;
@@ -62,7 +107,11 @@ async function http<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     const text = await res.text();
     let data: any;
-    try { data = JSON.parse(text); } catch { data = { message: text || res.statusText }; }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text || res.statusText };
+    }
     throw new Error(data.message || data.error || `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
@@ -120,4 +169,54 @@ export const api = {
       method: 'DELETE',
       headers: getHeaders(true),
     }),
+
+  colleaguesList: () => http<Colleague[]>(
+    '/colleagues',
+    { headers: getHeaders(true) },
+  ),
+
+  colleagueLists: () => http<ColleagueList[]>(
+    '/colleagues/lists',
+    { headers: getHeaders(true) },
+  ),
+
+  createColleagueList: (name: string) =>
+    http<ColleagueList>('/colleagues/lists', {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: JSON.stringify({ name }),
+    }),
+
+  addColleagueToList: (listId: number, colleagueId: number) =>
+    http<{ list: ColleagueList; colleague: Colleague }>(`/colleagues/lists/${listId}/members`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: JSON.stringify({ colleagueId }),
+    }),
+
+  addColleague: (email: string, listIds: number[] = []) =>
+    http<Colleague>('/colleagues', {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: JSON.stringify(listIds.length ? { email, listIds } : { email }),
+    }),
+
+  assignColleagueToProject: (colleagueId: number, projectId: number) =>
+    http<Colleague>(`/colleagues/${colleagueId}/assign-project`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: JSON.stringify({ projectId }),
+    }),
+
+  assignColleagueToTask: (colleagueId: number, taskId: number) =>
+    http<AssignTaskResponse>(`/colleagues/${colleagueId}/assign-task`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: JSON.stringify({ taskId }),
+    }),
+
+  tasksByProject: (projectId: number) =>
+    http<ProjectTaskDetail[]>(`/tasks/project/${projectId}`, { headers: getHeaders(true) }),
 };
+
+
