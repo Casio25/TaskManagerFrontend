@@ -227,9 +227,9 @@ export default function ParticipantsPage() {
   };
 
   const renderListsManager = () => (
-    <section className="participants-lists">
-      <h3>{dictionary.participants.listsTitle}</h3>
-      <form className="participants-add" onSubmit={handleCreateList}>
+    <div className="participants-card participants-sidebar-card">
+      <h3 className="participants-card-title">{dictionary.participants.listsTitle}</h3>
+      <form className="participants-side-form" onSubmit={handleCreateList}>
         <label>
           {dictionary.participants.newListLabel}
           <input
@@ -246,230 +246,221 @@ export default function ParticipantsPage() {
       {lists.length === 0 ? (
         <p className="muted">{dictionary.participants.noLists}</p>
       ) : (
-        <div className="participants-lists-grid">
+        <ul className="participants-side-list">
           {lists.map((list) => (
-            <div key={list.id} className="list-card">
-              <div className="list-card-head">
-                <h4>{list.name}</h4>
-                <span className="muted small">{t('participants.listMembersCount', { count: list.members.length })}</span>
-              </div>
-              {list.members.length === 0 ? (
-                <p className="muted small">{dictionary.participants.listEmpty}</p>
-              ) : (
-                <ul className="list-members">
-                  {list.members.map((member) => {
-                    const contact = member.colleague?.contact;
-                    return (
-                      <li key={member.id}>
-                        {contact?.name ?? member.colleague?.email ?? t('participants.unknownUser')}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+            <li key={list.id}>
+              <span className="list-name">{list.name}</span>
+              <span className="muted small">{t('participants.listMembersCount', { count: list.members.length })}</span>
+            </li>
           ))}
-        </div>
-      )}
-    </section>
-  );
-  return (
-    <div className="container">
-      <h2>{dictionary.participants.title}</h2>
-      <p className="muted">{dictionary.participants.description}</p>
-
-            <form className="participants-add" onSubmit={handleAddColleague}>
-        <label>
-          {dictionary.participants.addLabel}
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="name@example.com"
-            required
-          />
-        </label>
-        <div className="list-selector">
-          <p className="muted small">{dictionary.participants.addListsLabel}</p>
-          <p className="muted small">{dictionary.participants.addListsHint}</p>
-          {lists.length === 0 ? (
-            <p className="muted small">{dictionary.participants.noLists}</p>
-          ) : (
-            <div className="checkbox-group">
-              {lists.map((list) => (
-                <label key={list.id} className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={newColleagueLists.includes(list.id)}
-                    onChange={() => handleToggleNewColleagueList(list.id)}
-                  />
-                  <span>{list.name}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-        <button type="submit" disabled={adding}>
-          {adding ? dictionary.projects.creating : dictionary.participants.addButton}
-        </button>
-      </form>
-
-      {renderListsManager()}
-
-      {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
-      {notice && <div className="notice" style={{ marginTop: 12 }}>{notice}</div>}
-
-      {loading ? (
-        <p>{dictionary.errors.loading}</p>
-      ) : (
-        <div className="participants-grid">
-          {colleagues.map((colleague) => {
-            const registered = Boolean(colleague.contact);
-            const availableProjects = availableProjectsByColleague[colleague.id] ?? [];
-            const projectId = projectSelections[colleague.id] ?? '';
-            const taskProjectId = taskProjectSelections[colleague.id] ?? '';
-            const tasksForProject = typeof taskProjectId === 'number' ? projectTasks[taskProjectId] ?? [] : [];
-            const colleagueUserId = colleague.contact?.id;
-            const filteredTasks = tasksForProject.filter((task) => !task.assignedTo || task.assignedTo.id === colleagueUserId);
-            const taskId = taskSelections[colleague.id] ?? '';
-            const availableLists = availableListsByColleague[colleague.id] ?? [];
-            const listSelection = listSelections[colleague.id] ?? '';
-
-            return (
-              <section key={colleague.id} className="colleague-card">
-                <div className="colleague-header">
-                  <div>
-                    <div className="colleague-name">{colleague.contact?.name ?? colleague.email}</div>
-                    <div className="muted small">{colleague.email}</div>
-                  </div>
-                  <span className={`status-badge ${registered ? 'ok' : 'pending'}`}>
-                    {registered ? dictionary.participants.statusRegistered : dictionary.participants.statusPending}
-                  </span>
-                </div>
-
-                <div className="assign-block">
-                  <h4>{dictionary.participants.assignProject}</h4>
-                  <div className="assign-row">
-                    <select
-                      value={projectId}
-                      onChange={(event) => setProjectSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
-                      disabled={!registered || availableProjects.length === 0 || assigningProject[colleague.id]}
-                    >
-                      <option value="">{dictionary.participants.projectPlaceholder}</option>
-                      {availableProjects.map((project) => (
-                        <option key={project.id} value={project.id}>{project.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => handleAssignProject(colleague)}
-                      disabled={!registered || !projectId || assigningProject[colleague.id]}
-                    >
-                      {assigningProject[colleague.id] ? dictionary.projects.creating : dictionary.participants.assignProjectButton}
-                    </button>
-                  </div>
-                  {!registered && <div className="muted small">{dictionary.participants.disabledAssign}</div>}
-                  {registered && availableProjects.length === 0 && (
-                    <div className="muted small">{dictionary.participants.emptyProjects}</div>
-                  )}
-                </div>
-
-                <div className="assign-block">
-                  <h4>{dictionary.participants.assignTask}</h4>
-                  <div className="assign-row stack">
-                    <select
-                      value={taskProjectId}
-                      onChange={(event) => handleTaskProjectChange(colleague.id, event.target.value ? Number(event.target.value) : '')}
-                      disabled={!registered || projects.length === 0 || assigningTask[colleague.id]}
-                    >
-                      <option value="">{dictionary.participants.taskProjectPlaceholder}</option>
-                      {projects.map((project) => (
-                        <option key={project.id} value={project.id}>{project.name}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={taskId}
-                      onChange={(event) => setTaskSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
-                      disabled={!registered || !taskProjectId || filteredTasks.length === 0 || assigningTask[colleague.id]}
-                    >
-                      <option value="">{dictionary.participants.taskPlaceholder}</option>
-                      {filteredTasks.map((task) => (
-                        <option key={task.id} value={task.id}>{task.title}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => handleAssignTask(colleague)}
-                      disabled={!registered || !taskId || assigningTask[colleague.id]}
-                    >
-                      {assigningTask[colleague.id] ? dictionary.projects.creating : dictionary.participants.assignTaskButton}
-                    </button>
-                  </div>
-                  {registered && taskProjectId && filteredTasks.length === 0 && (
-                    <div className="muted small">{dictionary.participants.emptyTasks}</div>
-                  )}
-                </div>
-
-                <div className="assign-block">
-                  <h5>{dictionary.participants.colleagueListsTitle}</h5>
-                  {colleague.lists.length === 0 ? (
-                    <p className="muted small">{dictionary.participants.colleagueNoLists}</p>
-                  ) : (
-                    <ul className="tag-list">
-                      {colleague.lists.map((list) => (
-                        <li key={list.id} className="tag-chip active readonly">{list.name}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="assign-row">
-                    <select
-                      value={listSelection}
-                      onChange={(event) => setListSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
-                      disabled={availableLists.length === 0}
-                    >
-                      <option value="">{dictionary.participants.addToListPlaceholder}</option>
-                      {availableLists.map((list) => (
-                        <option key={list.id} value={list.id}>{list.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => handleAddToList(colleague.id)}
-                      disabled={!listSelection}
-                    >
-                      {dictionary.participants.addToListButton}
-                    </button>
-                  </div>
-                  {availableLists.length === 0 && (
-                    <div className="muted small">{dictionary.participants.colleagueAllLists}</div>
-                  )}
-                </div>
-
-                <div className="assign-block">
-                  <h5>{dictionary.participants.assignedProjectsTitle}</h5>
-                  {renderAssignedProjects(colleague)}
-                </div>
-                <div className="assign-block">
-                  <h5>{dictionary.participants.assignedTasksTitle}</h5>
-                  {renderAssignedTasks(colleague)}
-                </div>
-              </section>
-            );
-          })}
-          {colleagues.length === 0 && !loading && (
-            <p className="muted">{dictionary.participants.noColleagues}</p>
-          )}
-        </div>
+        </ul>
       )}
     </div>
   );
+
+  return (
+    <div className="container participants-page">
+      <div className="participants-header">
+        <h2>{dictionary.participants.title}</h2>
+        <p className="muted">{dictionary.participants.description}</p>
+      </div>
+
+      <div className="participants-layout">
+        <aside className="participants-sidebar">
+          {renderListsManager()}
+        </aside>
+        <div className="participants-main">
+          <section className="participants-card participants-add-card">
+            <h3 className="participants-card-title">{dictionary.participants.addButton}</h3>
+            <form className="participants-add" onSubmit={handleAddColleague}>
+              <label>
+                {dictionary.participants.addLabel}
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="name@example.com"
+                  required
+                />
+              </label>
+              <div className="participants-add-lists">
+                <p className="muted small">{dictionary.participants.addListsLabel}</p>
+                <p className="muted small">{dictionary.participants.addListsHint}</p>
+                {lists.length === 0 ? (
+                  <p className="muted small">{dictionary.participants.noLists}</p>
+                ) : (
+                  <div className="checkbox-group">
+                    {lists.map((list) => (
+                      <label key={list.id} className="checkbox">
+                        <input
+                          type="checkbox"
+                          checked={newColleagueLists.includes(list.id)}
+                          onChange={() => handleToggleNewColleagueList(list.id)}
+                        />
+                        <span>{list.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button type="submit" disabled={adding}>
+                {adding ? dictionary.projects.creating : dictionary.participants.addButton}
+              </button>
+            </form>
+          </section>
+
+          {(notice || error) && (
+            <div className="participants-feedback">
+              {notice && <div className="notice">{notice}</div>}
+              {error && <div className="error">{error}</div>}
+            </div>
+          )}
+
+          {loading ? (
+            <p>{dictionary.errors.loading}</p>
+          ) : (
+            <div className="participants-grid">
+              {colleagues.map((colleague) => {
+                const registered = Boolean(colleague.contact);
+                const availableProjects = availableProjectsByColleague[colleague.id] ?? [];
+                const projectId = projectSelections[colleague.id] ?? '';
+                const taskProjectId = taskProjectSelections[colleague.id] ?? '';
+                const tasksForProject = typeof taskProjectId === 'number' ? projectTasks[taskProjectId] ?? [] : [];
+                const colleagueUserId = colleague.contact?.id;
+                const filteredTasks = tasksForProject.filter((task) => !task.assignedTo || task.assignedTo.id === colleagueUserId);
+                const taskId = taskSelections[colleague.id] ?? '';
+                const availableLists = availableListsByColleague[colleague.id] ?? [];
+                const listSelection = listSelections[colleague.id] ?? '';
+
+                return (
+                  <section key={colleague.id} className="colleague-card">
+                    <div className="colleague-header">
+                      <div>
+                        <div className="colleague-name">{colleague.contact?.name ?? colleague.email}</div>
+                        <div className="muted small">{colleague.email}</div>
+                      </div>
+                      <span className={`status-badge ${registered ? 'ok' : 'pending'}`}>
+                        {registered ? dictionary.participants.statusRegistered : dictionary.participants.statusPending}
+                      </span>
+                    </div>
+
+                    <div className="assign-block">
+                      <h4>{dictionary.participants.assignProject}</h4>
+                      <div className="assign-row">
+                        <select
+                          value={projectId}
+                          onChange={(event) => setProjectSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
+                          disabled={!registered || availableProjects.length === 0 || assigningProject[colleague.id]}
+                        >
+                          <option value="">{dictionary.participants.projectPlaceholder}</option>
+                          {availableProjects.map((project) => (
+                            <option key={project.id} value={project.id}>{project.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleAssignProject(colleague)}
+                          disabled={!registered || !projectId || assigningProject[colleague.id]}
+                        >
+                          {assigningProject[colleague.id] ? dictionary.projects.creating : dictionary.participants.assignProjectButton}
+                        </button>
+                      </div>
+                      {!registered && <div className="muted small">{dictionary.participants.disabledAssign}</div>}
+                      {registered && availableProjects.length === 0 && (
+                        <div className="muted small">{dictionary.participants.emptyProjects}</div>
+                      )}
+                    </div>
+
+                    <div className="assign-block">
+                      <h4>{dictionary.participants.assignTask}</h4>
+                      <div className="assign-row stack">
+                        <select
+                          value={taskProjectId}
+                          onChange={(event) => handleTaskProjectChange(colleague.id, event.target.value ? Number(event.target.value) : '')}
+                          disabled={!registered || projects.length === 0 || assigningTask[colleague.id]}
+                        >
+                          <option value="">{dictionary.participants.taskProjectPlaceholder}</option>
+                          {projects.map((project) => (
+                            <option key={project.id} value={project.id}>{project.name}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={taskId}
+                          onChange={(event) => setTaskSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
+                          disabled={!registered || !taskProjectId || filteredTasks.length === 0 || assigningTask[colleague.id]}
+                        >
+                          <option value="">{dictionary.participants.taskPlaceholder}</option>
+                          {filteredTasks.map((task) => (
+                            <option key={task.id} value={task.id}>{task.title}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleAssignTask(colleague)}
+                          disabled={!registered || !taskId || assigningTask[colleague.id]}
+                        >
+                          {assigningTask[colleague.id] ? dictionary.projects.creating : dictionary.participants.assignTaskButton}
+                        </button>
+                      </div>
+                      {registered && taskProjectId && filteredTasks.length === 0 && (
+                        <div className="muted small">{dictionary.participants.emptyTasks}</div>
+                      )}
+                    </div>
+
+                    <div className="assign-block">
+                      <h5>{dictionary.participants.colleagueListsTitle}</h5>
+                      {colleague.lists.length === 0 ? (
+                        <p className="muted small">{dictionary.participants.colleagueNoLists}</p>
+                      ) : (
+                        <ul className="tag-list">
+                          {colleague.lists.map((list) => (
+                            <li key={list.id} className="tag-chip active readonly">{list.name}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="assign-row">
+                        <select
+                          value={listSelection}
+                          onChange={(event) => setListSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
+                          disabled={availableLists.length === 0}
+                        >
+                          <option value="">{dictionary.participants.addToListPlaceholder}</option>
+                          {availableLists.map((list) => (
+                            <option key={list.id} value={list.id}>{list.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleAddToList(colleague.id)}
+                          disabled={!listSelection}
+                        >
+                          {dictionary.participants.addToListButton}
+                        </button>
+                      </div>
+                      {availableLists.length === 0 && (
+                        <div className="muted small">{dictionary.participants.colleagueAllLists}</div>
+                      )}
+                    </div>
+
+                    <div className="assign-block">
+                      <h5>{dictionary.participants.assignedProjectsTitle}</h5>
+                      {renderAssignedProjects(colleague)}
+                    </div>
+                    <div className="assign-block">
+                      <h5>{dictionary.participants.assignedTasksTitle}</h5>
+                      {renderAssignedTasks(colleague)}
+                    </div>
+                  </section>
+                );
+              })}
+              {colleagues.length === 0 && !loading && (
+                <p className="muted">{dictionary.participants.noColleagues}</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
-
-
-
-
-
-
-
-
 

@@ -98,7 +98,20 @@ button.danger { background: var(--danger); color: #ffffff; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
 
 .project-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.project-item { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--surface-soft); box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.15); }
+.project-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.15);
+}
+
+.project-item.project-focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+  background: rgba(37, 99, 235, 0.08);
+}
+
 .project-title { font-weight: 600; font-size: 1.05rem; color: var(--text); }
 .project-meta { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; font-size: 0.92rem; }
 .project-actions { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
@@ -107,6 +120,57 @@ button.danger { background: var(--danger); color: #ffffff; }
 .invite-fields input { width: auto; min-width: 160px; }
 
 .task-editor { margin-top: 20px; display: flex; flex-direction: column; gap: 16px; }
+.color-picker {
+  margin-top: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.color-picker-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.color-picker-label {
+  font-weight: 600;
+}
+
+.color-picker-hint {
+  font-size: 0.85rem;
+}
+
+.color-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.color-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.color-swatch:hover {
+  transform: translateY(-1px);
+}
+
+.color-swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.15);
+}
+
+.color-swatch:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.4);
+  outline-offset: 2px;
+}
+
 .task-row { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: var(--surface-soft); display: flex; flex-direction: column; gap: 12px; }
 .task-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .task-tags { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -130,9 +194,11 @@ button.danger { background: var(--danger); color: #ffffff; }
 .calendar-cell.has-tasks { border-color: rgba(37, 99, 235, 0.35); }
 .calendar-date { font-weight: 600; margin-bottom: 4px; }
 .calendar-items { display: flex; flex-direction: column; gap: 4px; flex: 1; overflow: hidden; }
-.calendar-item { display: inline-flex; align-items: center; background: rgba(37, 99, 235, 0.1); color: var(--accent); border-radius: 6px; padding: 2px 6px; font-size: 0.75rem; }
-.calendar-item.project { background: rgba(234, 179, 8, 0.2); color: #a16207; }
-.calendar-item.more { background: rgba(71, 85, 105, 0.15); color: #475569; }
+.calendar-item { display: inline-flex; align-items: center; border-radius: 6px; padding: 2px 6px; font-size: 0.75rem; border: 1px solid transparent; background: transparent; color: inherit; gap: 4px; text-decoration: none; transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
+.calendar-item.project { text-decoration: none; cursor: pointer; }
+.calendar-item.project:hover { filter: brightness(0.95); }
+
+.calendar-item.more { background: rgba(71, 85, 105, 0.15); color: #475569; border-color: transparent; }
 
 .table-wrapper { overflow-x: auto; margin-top: 16px; }
 .table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 1px 2px var(--shadow); }
@@ -151,6 +217,9 @@ button.danger { background: var(--danger); color: #ffffff; }
 .project-deadline-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .project-deadline-list li { display: flex; justify-content: space-between; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; background: var(--surface-soft); }
 .project-deadline-list .project-name { font-weight: 600; }
+.project-name-link { color: inherit; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.project-name-link:hover { text-decoration: underline; }
+
 
 textarea { min-height: 80px; resize: vertical; }
 button + button { margin-left: 8px; }
@@ -250,25 +319,178 @@ button + button { margin-left: 8px; }
   color: #166534;
 }
 
-.participants-add {
-  margin: 20px 0;
-  padding: 16px;
+
+.participants-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.participants-header {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.participants-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: flex-start;
+}
+
+@media (max-width: 960px) {
+  .participants-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.participants-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.participants-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.participants-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 1px 2px var(--shadow);
+  padding: 20px;
   display: flex;
+  flex-direction: column;
   gap: 16px;
-  flex-wrap: wrap;
-  align-items: flex-end;
+}
+
+.participants-card-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.participants-add {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .participants-add label {
-  flex: 1;
-  min-width: 200px;
+  margin-bottom: 0;
 }
 
-.participants-grid {
+.participants-add button {
+  width: fit-content;
+  align-self: center;
+}
+
+@media (min-width: 640px) {
+  .participants-add {
+    flex-direction: row;
+    align-items: flex-end;
+  }
+
+  .participants-add label {
+    flex: 1 1 220px;
+  }
+
+  .participants-add-lists {
+    flex: 1 1 260px;
+  }
+
+  .participants-add button {
+    align-self: stretch;
+  }
+}
+
+.participants-add-lists {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
+.participants-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.participants-side-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.participants-side-form label {
+  margin-bottom: 0;
+}
+
+.participants-side-form button {
+  width: 100%;
+}
+
+.participants-side-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.participants-side-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.participants-sidebar-card {
+  position: sticky;
+  top: 16px;
+}
+
+@media (max-width: 960px) {
+  .participants-sidebar-card {
+    position: static;
+  }
+}\n.participants-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
@@ -409,18 +631,6 @@ button + button { margin-left: 8px; }
 .task-assignee {
   margin-top: 6px;
 }
-.participants-lists {
-  margin: 24px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.participants-lists-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
 
 .list-card {
   border: 1px solid var(--border);
@@ -468,3 +678,6 @@ button + button { margin-left: 8px; }
 .task-assign button {
   white-space: nowrap;
 }
+
+
+

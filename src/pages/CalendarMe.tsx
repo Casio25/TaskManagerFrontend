@@ -1,5 +1,5 @@
 ﻿import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   addDays,
   addMonths,
@@ -12,20 +12,10 @@ import {
   startOfWeek,
   subMonths,
 } from 'date-fns';
-import { api, type ProjectOverview } from '../lib/api';
+import { api, type CalendarTask, type ProjectOverview } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
-type CalendarTask = {
-  id: number;
-  title: string;
-  status: string;
-  deadline: string | null;
-  project: { id: number; name: string };
-  assignedTo?: { id: number; name: string; email: string } | null;
-  assignedGroup?: { id: number; name: string } | null;
-};
-
-type ProjectSummary = Pick<ProjectOverview, 'id' | 'name' | 'deadline'>;
+type ProjectSummary = Pick<ProjectOverview, 'id' | 'name' | 'deadline' | 'color'>;
 
 type RemainingTone = 'ok' | 'warn' | 'danger' | 'muted';
 type DayEvent =
@@ -35,6 +25,52 @@ type DayEvent =
 type RangeFilter = { from?: Date; to?: Date };
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+const DEFAULT_PROJECT_COLOR = '#2563EB';
+
+function normalizeColor(value?: string | null) {
+  const hex = value?.trim();
+  return hex && /^#[0-9a-fA-F]{6}$/.test(hex) ? hex.toUpperCase() : DEFAULT_PROJECT_COLOR;
+}
+
+function hexToRgb(hex: string) {
+  const normalized = normalizeColor(hex).replace('#', '');
+  const bigint = Number.parseInt(normalized, 16);
+  return {
+    r: (bigint >> 16) & 255,
+    g: (bigint >> 8) & 255,
+    b: bigint & 255,
+  };
+}
+
+function withAlpha(hex: string, alpha: number) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function getContrastColor(hex: string) {
+  const { r, g, b } = hexToRgb(hex);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 140 ? '#1f2937' : '#ffffff';
+}
+
+function getCalendarItemStyle(color?: string | null) {
+  const normalized = normalizeColor(color);
+  return {
+    backgroundColor: withAlpha(normalized, 0.2),
+    color: getContrastColor(normalized),
+    border: `1px solid ${withAlpha(normalized, 0.35)}` ,
+  } as const;
+}
+
+function getDeadlineItemStyle(color?: string | null) {
+  const normalized = normalizeColor(color);
+  return {
+    borderColor: withAlpha(normalized, 0.35),
+    backgroundColor: withAlpha(normalized, 0.12),
+    color: getContrastColor(normalized),
+  } as const;
+}
 
 function safeDate(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -77,7 +113,7 @@ function parseRangeParams(params?: { from?: string; to?: string }): RangeFilter 
 export default function CalendarMePage() {
   const { dictionary, t } = useI18n();
   const [tasks, setTasks] = useState<CalendarTask[]>([]);
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projects, setProjects] = useState<ProjectOverview[]>([]);
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,16 +168,16 @@ export default function CalendarMePage() {
       try {
         const [taskData, projectData] = await Promise.all([api.calendarMe(params), api.projectsMine()]);
         setTasks(taskData);
-        const map = new Map<number, ProjectSummary>();
-        projectData.admin.forEach((p) => {
-          map.set(p.id, { id: p.id, name: p.name, deadline: p.deadline ?? null });
+        const dedup = new Map<number, ProjectOverview>();
+        projectData.admin.forEach((project) => {
+          dedup.set(project.id, project);
         });
-        projectData.member.forEach((p) => {
-          if (!map.has(p.id)) {
-            map.set(p.id, { id: p.id, name: p.name, deadline: p.deadline ?? null });
+        projectData.member.forEach((project) => {
+          if (!dedup.has(project.id)) {
+            dedup.set(project.id, project);
           }
         });
-        setProjects(Array.from(map.values()));
+        setProjects(Array.from(dedup.values()));
       } catch (e: any) {
         setError(e.message || dictionary.calendar.loadFailed);
       } finally {
@@ -177,18 +213,49 @@ export default function CalendarMePage() {
       map[key].push(event);
     };
 
+    const withinRange = (date: Date) => {
+      if (rangeFilter.from && date < rangeFilter.from) return false;
+      if (rangeFilter.to && date > rangeFilter.to) return false;
+      return true;
+    };
+
+    const seenTaskIds = new Set<number>();
+
     tasks.forEach((task) => {
       const date = safeDate(task.deadline);
-      if (!date) return;
+      if (!date || !withinRange(date)) return;
+      seenTaskIds.add(task.id);
       addEvent(date, { type: 'task', task });
     });
 
     projects.forEach((project) => {
-      const date = safeDate(project.deadline);
-      if (!date) return;
-      if (rangeFilter.from && date < rangeFilter.from) return;
-      if (rangeFilter.to && date > rangeFilter.to) return;
-      addEvent(date, { type: 'project', project });
+      project.tasks.forEach((task) => {
+        if (seenTaskIds.has(task.id)) return;
+        const date = safeDate(task.deadline ?? null);
+        if (!date || !withinRange(date)) return;
+        const calendarTask: CalendarTask = {
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          deadline: task.deadline ?? null,
+          project: { id: project.id, name: project.name, color: project.color },
+          assignedTo: task.assignedTo ?? null,
+        };
+        addEvent(date, { type: 'task', task: calendarTask });
+      });
+
+      const projectDeadline = safeDate(project.deadline ?? null);
+      if (projectDeadline && withinRange(projectDeadline)) {
+        addEvent(projectDeadline, {
+          type: 'project',
+          project: {
+            id: project.id,
+            name: project.name,
+            deadline: project.deadline ?? null,
+            color: project.color ?? null,
+          },
+        });
+      }
     });
 
     return map;
@@ -212,14 +279,22 @@ export default function CalendarMePage() {
 
   const projectDeadlines = useMemo(() => {
     return projects
-      .map((project) => ({ project, date: safeDate(project.deadline) }))
+      .map((project) => ({
+        project: {
+          id: project.id,
+          name: project.name,
+          deadline: project.deadline ?? null,
+          color: project.color ?? null,
+        },
+        date: safeDate(project.deadline ?? null),
+      }))
       .filter((entry) => {
         if (!entry.date) return false;
         if (rangeFilter.from && entry.date < rangeFilter.from) return false;
         if (rangeFilter.to && entry.date > rangeFilter.to) return false;
         return true;
       })
-      .sort((a, b) => (a.date!.getTime() - b.date!.getTime()));
+      .sort((a, b) => a.date!.getTime() - b.date!.getTime());
   }, [projects, rangeFilter]);
 
   const weekdays = dictionary.calendar.weekdays;
@@ -287,15 +362,24 @@ export default function CalendarMePage() {
                   {dayEvents.slice(0, 3).map((event) => {
                     if (event.type === 'task') {
                       return (
-                        <span key={`task-${event.task.id}`} className="calendar-item">
+                        <span
+                          key={`task-${event.task.id}`}
+                          className="calendar-item"
+                          style={getCalendarItemStyle(event.task.project?.color)}
+                        >
                           {(event.task.project?.name ?? dictionary.calendar.table.project)}: {event.task.title}
                         </span>
                       );
                     }
                     return (
-                      <span key={`project-${event.project.id}`} className="calendar-item project">
+                      <Link
+                        key={`project-${event.project.id}`}
+                        className="calendar-item project"
+                        to={`/dashboard?project=${event.project.id}`}
+                        style={getDeadlineItemStyle(event.project.color)}
+                      >
                         {t('calendar.calendarItem.project', { name: event.project.name })}
-                      </span>
+                      </Link>
                     );
                   })}
                   {dayEvents.length > 3 && (
@@ -361,8 +445,8 @@ export default function CalendarMePage() {
               <h3>{dictionary.calendar.projectDeadlines.title}</h3>
               <ul className="project-deadline-list">
                 {projectDeadlines.map(({ project, date }) => (
-                  <li key={project.id}>
-                    <span className="project-name">{project.name}</span>
+                  <li key={project.id} style={getDeadlineItemStyle(project.color)}>
+                    <Link to={`/dashboard?project=${project.id}`} className="project-name-link">{project.name}</Link>
                     <span>{date!.toLocaleString()}</span>
                   </li>
                 ))}

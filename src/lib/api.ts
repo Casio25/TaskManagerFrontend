@@ -21,6 +21,7 @@ export type ProjectOverview = {
   id: number;
   name: string;
   description?: string | null;
+  color?: string | null;
   createdAt: string;
   updatedAt?: string | null;
   deadline?: string | null;
@@ -37,6 +38,7 @@ export type NewProjectTaskPayload = {
 export type CreateProjectPayload = {
   name: string;
   description?: string;
+  color?: string;
   groupId?: number;
   deadline: string;
   tasks: NewProjectTaskPayload[];
@@ -81,9 +83,18 @@ export type ProjectTaskDetail = {
   status: string;
   deadline: string | null;
   assignedTo?: { id: number; name: string; email: string } | null;
-  project: { id: number; name: string };
+  project: { id: number; name: string; color?: string | null };
 };
 
+export type CalendarTask = {
+  id: number;
+  title: string;
+  status: string;
+  deadline: string | null;
+  project: { id: number; name: string; color?: string | null };
+  assignedTo?: { id: number; name: string; email: string } | null;
+  assignedGroup?: { id: number; name: string } | null;
+};
 export type AssignTaskResponse = Colleague & { lastAssignedTask?: ProjectTaskDetail };
 
 export type AuthResponse = {
@@ -153,7 +164,7 @@ export const api = {
     if (params?.from) query.append('from', params.from);
     if (params?.to) query.append('to', params.to);
     const suffix = query.size ? `?${query.toString()}` : '';
-    return http<any[]>(`/calendar/me${suffix}`, { headers: getHeaders(true) });
+    return http<CalendarTask[]>(`/calendar/me${suffix}`, { headers: getHeaders(true) });
   },
 
   calendarProject: (projectId: number, params?: { from?: string; to?: string }) => {
@@ -161,7 +172,7 @@ export const api = {
     if (params?.from) query.append('from', params.from);
     if (params?.to) query.append('to', params.to);
     const suffix = query.size ? `?${query.toString()}` : '';
-    return http<any[]>(`/calendar/project/${projectId}${suffix}`, { headers: getHeaders(true) });
+    return http<CalendarTask[]>(`/calendar/project/${projectId}${suffix}`, { headers: getHeaders(true) });
   },
 
   deleteProject: (projectId: number) =>
@@ -218,5 +229,3 @@ export const api = {
   tasksByProject: (projectId: number) =>
     http<ProjectTaskDetail[]>(`/tasks/project/${projectId}`, { headers: getHeaders(true) }),
 };
-
-

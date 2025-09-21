@@ -1,5 +1,5 @@
-﻿import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+﻿import { useCallback, useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { api, type ProjectOverview, type ProjectTaskSummary, type ColleagueList } from '../lib/api';
 import { useI18n, type TranslationDictionary } from '../lib/i18n';
@@ -138,6 +138,12 @@ function TasksList({ tasks, t, dictionary, assignment }: TasksListProps) {
 export default function DashboardPage() {
   const { user, logout } = useAuth();
   const { dictionary, t } = useI18n();
+  const [searchParams] = useSearchParams();
+  const [focusedProjectId, setFocusedProjectId] = useState<number | null>(() => {
+    const param = searchParams.get('project');
+    const parsed = param ? Number.parseInt(param, 10) : Number.NaN;
+    return Number.isNaN(parsed) ? null : parsed;
+  });
   const [admin, setAdmin] = useState<Project[]>([]);
   const [member, setMember] = useState<Project[]>([]);
   const [lists, setLists] = useState<ColleagueList[]>([]);
@@ -151,30 +157,47 @@ export default function DashboardPage() {
   const [assigningFromList, setAssigningFromList] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError(null);
-      setNotice(null);
-      try {
-        console.log('[Dashboard] fetching projects and colleague lists');
-        const [projectData, listData] = await Promise.all([
-          api.projectsMine(),
-          api.colleagueLists(),
-        ]);
-        console.log('[Dashboard] projects response', projectData);
-        console.log('[Dashboard] colleague lists response', listData);
-        setAdmin(projectData.admin);
-        setMember(projectData.member);
-        setLists(listData);
-      } catch (e: any) {
-        console.error('[Dashboard] failed to load data', e);
-        setError(e.message || dictionary.dashboard.loadFailed);
-      } finally {
-        console.log('[Dashboard] load finished');
-        setLoading(false);
-      }
-    })();
+    const param = searchParams.get('project');
+    const parsed = param ? Number.parseInt(param, 10) : Number.NaN;
+    setFocusedProjectId(Number.isNaN(parsed) ? null : parsed);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!focusedProjectId) return;
+    const element = document.getElementById(`project-${focusedProjectId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [focusedProjectId, admin, member]);
+
+
+  const loadDashboardData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      console.log('[Dashboard] fetching projects and colleague lists');
+      const [projectData, listData] = await Promise.all([
+        api.projectsMine(),
+        api.colleagueLists(),
+      ]);
+      console.log('[Dashboard] projects response', projectData);
+      console.log('[Dashboard] colleague lists response', listData);
+      setAdmin(projectData.admin);
+      setMember(projectData.member);
+      setLists(listData);
+    } catch (e: any) {
+      console.error('[Dashboard] failed to load data', e);
+      setError(e.message || dictionary.dashboard.loadFailed);
+    } finally {
+      console.log('[Dashboard] load finished');
+      setLoading(false);
+    }
   }, [dictionary.dashboard.loadFailed]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
 
   const requestDelete = (projectId: number) => {
     setNotice(null);
@@ -240,24 +263,19 @@ export default function DashboardPage() {
     try {
       const response = await api.assignColleagueToTask(colleagueId, taskId);
       console.log('[Dashboard] assign response', response);
-      const list = lists.find((item) => item.id === listId);
-      const member = list?.members.find((entry) => entry.colleagueId === colleagueId);
-      const contact = member?.colleague?.contact;
-      const fallback = contact
-        ? { id: contact.id, name: contact.name ?? '', email: contact.email }
-        : member?.colleague
-        ? { id: member.colleague.id, name: '', email: member.colleague.email }
-        : null;
-      const assignedUser = response.lastAssignedTask?.assignedTo || fallback;
-      if (assignedUser) {
-        updateTaskAssignment(projectId, taskId, assignedUser);
+      const assignedUser = response.lastAssignedTask?.assignedTo;
+      if (!assignedUser) {
+        setError(t('dashboard.assignFailed'));
+        return;
       }
+      updateTaskAssignment(projectId, taskId, assignedUser);
+      await loadDashboardData();
       setTaskListSelections((prev) => ({ ...prev, [taskId]: '' }));
       setTaskUserSelections((prev) => ({ ...prev, [taskId]: '' }));
-      setNotice(t('dashboard.deleteSuccess'));
+      setNotice(t('dashboard.assignSuccess'));
     } catch (e: any) {
       console.error('[Dashboard] assign from list failed', { projectId, taskId, colleagueId, listId, error: e });
-      setError(e.message || t('dashboard.deleteFailed'));
+      setError(e.message || t('dashboard.assignFailed'));
     } finally {
       setAssigningFromList((prev) => ({ ...prev, [taskId]: false }));
       console.log('[Dashboard] assign from list finished', { projectId, taskId });
@@ -271,7 +289,7 @@ export default function DashboardPage() {
         const deadlineDate = project.deadline ? new Date(project.deadline) : null;
         const deadlineIso = deadlineDate ? deadlineDate.toISOString() : '';
         return (
-          <li key={project.id} className="project-item">
+          <li key={project.id} id={`project-${project.id}`} className={`project-item${project.id === focusedProjectId ? " project-focused" : ""}`}>
             <div className="project-title">{project.name}</div>
             <div className="project-meta">
               <span>{dictionary.dashboard.createdLabel}: {formatDateTime(project.createdAt, t)}</span>
@@ -384,3 +402,6 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+
+

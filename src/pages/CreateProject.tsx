@@ -3,6 +3,7 @@ import { api, type CreateProjectPayload, type NewProjectTaskPayload } from '../l
 import { useI18n } from '../lib/i18n';
 
 const TAG_OPTIONS = ['Design', 'Development', 'Review', 'Testing', 'AI', 'Research'] as const;
+const COLOR_OPTIONS = ['#2563EB', '#22C55E', '#F97316', '#A855F7', '#EF4444', '#0EA5E9', '#FACC15', '#A3A3A3'] as const;
 
 type DeadlineBadge = { label: string; tone: 'ok' | 'warn' | 'danger' | 'muted' };
 
@@ -34,6 +35,7 @@ export default function CreateProjectPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [color, setColor] = useState<string>(COLOR_OPTIONS[0]);
   const [tasksInput, setTasksInput] = useState<NewTask[]>([createEmptyTask()]);
   const [creating, setCreating] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
@@ -87,6 +89,7 @@ export default function CreateProjectPage() {
     setName('');
     setDescription('');
     setDeadline('');
+    setColor(COLOR_OPTIONS[0]);
     setTasksInput([createEmptyTask()]);
   };
 
@@ -140,6 +143,7 @@ export default function CreateProjectPage() {
       const payload: CreateProjectPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
+        color: color.toUpperCase(),
         deadline: projectDeadline.toISOString(),
         tasks: preparedTasks,
       };
@@ -190,6 +194,29 @@ export default function CreateProjectPage() {
               required
             />
           </label>
+
+          <div className="color-picker">
+            <div className="color-picker-header">
+              <span className="color-picker-label">{dictionary.projects.colorLabel}</span>
+              <span className="color-picker-hint muted">{dictionary.projects.colorHint}</span>
+            </div>
+            <div className="color-options">
+              {COLOR_OPTIONS.map((option) => {
+                const selected = color === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`color-swatch${selected ? ' active' : ''}`}
+                    style={{ backgroundColor: option }}
+                    onClick={() => setColor(option)}
+                    aria-pressed={selected}
+                    aria-label={t('projects.colorOption', { color: option })}
+                  />
+                );
+              })}
+            </div>
+          </div>
 
           <div className="task-editor">
             <div className="task-header">

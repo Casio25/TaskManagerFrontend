@@ -78,6 +78,8 @@ const en = {
       selectList: 'Select list',
       selectPerson: 'Select person',
       assignButton: 'Assign',
+      assignSuccess: 'Assignee updated',
+      assignFailed: 'Could not update assignment',
       noAssignableUsers: 'No available colleagues in this list',
     },
     projects: {
@@ -85,6 +87,9 @@ const en = {
       name: 'Name',
       description: 'Description (optional)',
       projectDeadline: 'Project deadline',
+      colorLabel: 'Project color',
+      colorHint: 'Choose how this project appears in the calendar.',
+      colorOption: 'Select color {{color}}',
       initialTasks: 'Initial Tasks',
       addTask: 'Add task',
       removeTask: 'Remove',
