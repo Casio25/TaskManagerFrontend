@@ -205,6 +205,18 @@ export const api = {
       body: JSON.stringify({ colleagueId }),
     }),
 
+  removeColleagueFromList: (listId: number, colleagueId: number) =>
+    http<{ list: ColleagueList; colleague: Colleague }>(`/colleagues/lists/${listId}/members/${colleagueId}`, {
+      method: 'DELETE',
+      headers: getHeaders(true),
+    }),
+
+  deleteColleagueList: (listId: number) =>
+    http<{ deletedId: number }>(`/colleagues/lists/${listId}`, {
+      method: 'DELETE',
+      headers: getHeaders(true),
+    }),
+
   addColleague: (email: string, listIds: number[] = []) =>
     http<Colleague>('/colleagues', {
       method: 'POST',

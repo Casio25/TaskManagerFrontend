@@ -157,6 +157,12 @@ export default function DashboardPage() {
   const [assigningFromList, setAssigningFromList] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
     const param = searchParams.get('project');
     const parsed = param ? Number.parseInt(param, 10) : Number.NaN;
     setFocusedProjectId(Number.isNaN(parsed) ? null : parsed);

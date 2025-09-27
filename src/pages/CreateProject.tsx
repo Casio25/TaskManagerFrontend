@@ -1,4 +1,5 @@
 ﻿import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, type CreateProjectPayload, type NewProjectTaskPayload } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
@@ -32,6 +33,7 @@ function computeBadge(deadline: string | undefined, t: (key: string, vars?: Reco
 
 export default function CreateProjectPage() {
   const { dictionary, t } = useI18n();
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
@@ -59,6 +61,12 @@ export default function CreateProjectPage() {
       }),
     );
   }, [deadline]);
+
+  useEffect(() => {
+    if (!successMessage) return;
+    const timer = window.setTimeout(() => setSuccessMessage(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [successMessage]);
 
   const addTask = () => {
     setTasksInput((prev) => [...prev, createEmptyTask()]);
@@ -147,9 +155,10 @@ export default function CreateProjectPage() {
         deadline: projectDeadline.toISOString(),
         tasks: preparedTasks,
       };
-      await api.createProject(payload);
+      const project = await api.createProject(payload);
       setSuccessMessage(t('projects.success'));
       resetForm();
+      navigate(`/dashboard?project=${project.id}`);
     } catch (error: any) {
       setTaskError(error.message || t('projects.errors.createFailed'));
     } finally {

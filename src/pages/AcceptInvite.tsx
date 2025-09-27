@@ -19,6 +19,12 @@ export default function AcceptInvitePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!success) return;
+    const timer = window.setTimeout(() => setSuccess(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [success]);
+
   const onAccept = async () => {
     if (!token) return;
     setLoading(true);

@@ -1,4 +1,4 @@
-﻿import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   api,
   type AssignTaskResponse,
@@ -33,9 +33,15 @@ export default function ParticipantsPage() {
   const [taskSelections, setTaskSelections] = useState<Record<number, number | ''>>({});
   const [assigningTask, setAssigningTask] = useState<Record<number, boolean>>({});
   const [newColleagueLists, setNewColleagueLists] = useState<number[]>([]);
+  const [listsPickerOpen, setListsPickerOpen] = useState(false);
   const [listSelections, setListSelections] = useState<Record<number, number | ''>>({});
   const [newListName, setNewListName] = useState('');
   const [creatingList, setCreatingList] = useState(false);
+  const [deletingList, setDeletingList] = useState<Record<number, boolean>>({});
+  const [removingFromList, setRemovingFromList] = useState<Record<string, boolean>>({});
+
+  const ICON_SPINNER = '\u23F3';
+  const ICON_TRASH = '\u{1F5D1}';
 
   useEffect(() => {
     (async () => {
@@ -60,7 +66,16 @@ export default function ParticipantsPage() {
   }, [dictionary.projects.errors.createFailed]);
 
   useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
     setNewColleagueLists((prev) => prev.filter((id) => lists.some((list) => list.id === id)));
+    if (lists.length === 0) {
+      setListsPickerOpen(false);
+    }
   }, [lists]);
 
   const availableProjectsByColleague = useMemo(() => {
@@ -80,6 +95,13 @@ export default function ParticipantsPage() {
     });
     return map;
   }, [colleagues, lists]);
+
+  const selectedLists = useMemo(() => lists.filter((list) => newColleagueLists.includes(list.id)), [lists, newColleagueLists]);
+  const selectedListCount = selectedLists.length;
+  const hasLists = lists.length > 0;
+  const listSelectionSummary = selectedListCount > 0
+    ? t('participants.listSelectionCount', { count: selectedListCount })
+    : dictionary.participants.addListsHint;
 
   const ensureProjectTasks = async (projectId: number, force = false) => {
     if (!force && projectTasks[projectId]) return;
@@ -102,6 +124,7 @@ export default function ParticipantsPage() {
       setColleagues((prev) => [sanitizeColleague(result), ...prev]);
       setEmail('');
       setNewColleagueLists([]);
+      setListsPickerOpen(false);
       setNotice(dictionary.participants.successAdd);
     } catch (err: any) {
       setError(err.message || dictionary.participants.errors.addFailed);
@@ -140,11 +163,65 @@ export default function ParticipantsPage() {
         const exists = prev.some((item) => item.id === list.id);
         return exists ? prev.map((item) => (item.id === list.id ? list : item)) : [...prev, list];
       });
-      setColleagues((prev) => prev.map((item) => (item.id === colleague.id ? colleague : item)));
+      const sanitized = sanitizeColleague(colleague);
+      setColleagues((prev) => prev.map((item) => (item.id === sanitized.id ? sanitized : item)));
       setListSelections((prev) => ({ ...prev, [colleagueId]: '' }));
       setNotice(dictionary.participants.addToListSuccess);
     } catch (err: any) {
       setError(err.message || dictionary.participants.errors.addToListFailed);
+    }
+  };
+
+  const handleRemoveFromList = async (listId: number, colleagueId: number) => {
+    setError(null);
+    setNotice(null);
+    const key = `${listId}:${colleagueId}`;
+    setRemovingFromList((prev) => ({ ...prev, [key]: true }));
+    try {
+      const { list, colleague } = await api.removeColleagueFromList(listId, colleagueId);
+      setLists((prev) => prev.map((item) => (item.id === list.id ? list : item)));
+      const sanitized = sanitizeColleague(colleague);
+      setColleagues((prev) => prev.map((item) => (item.id === sanitized.id ? sanitized : item)));
+      setNotice(dictionary.participants.removeFromListSuccess);
+    } catch (err: any) {
+      setError(err.message || dictionary.participants.errors.removeFromListFailed);
+    } finally {
+      setRemovingFromList((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
+  const handleDeleteList = async (list: ColleagueList) => {
+    if (!window.confirm(t('participants.deleteListConfirm', { name: list.name }))) return;
+    setError(null);
+    setNotice(null);
+    setDeletingList((prev) => ({ ...prev, [list.id]: true }));
+    try {
+      await api.deleteColleagueList(list.id);
+      const refreshed = await api.colleagueLists();
+      setLists(refreshed);
+      setNewColleagueLists((prev) => prev.filter((id) => refreshed.some((listItem) => listItem.id === id)));
+      if (refreshed.length === 0) {
+        setListsPickerOpen(false);
+      }
+      setColleagues((prev) =>
+        prev.map((item) => ({
+          ...item,
+          lists: item.lists.filter((memberList) => refreshed.some((listItem) => listItem.id === memberList.id)),
+        }))
+      );
+      setNotice(dictionary.participants.deleteListSuccess);
+    } catch (err: any) {
+      setError(err.message || dictionary.participants.errors.deleteListFailed);
+    } finally {
+      setDeletingList((prev) => {
+        const next = { ...prev };
+        delete next[list.id];
+        return next;
+      });
     }
   };
 
@@ -247,12 +324,57 @@ export default function ParticipantsPage() {
         <p className="muted">{dictionary.participants.noLists}</p>
       ) : (
         <ul className="participants-side-list">
-          {lists.map((list) => (
-            <li key={list.id}>
-              <span className="list-name">{list.name}</span>
-              <span className="muted small">{t('participants.listMembersCount', { count: list.members.length })}</span>
-            </li>
-          ))}
+          {lists.map((list) => {
+            const isDeleting = Boolean(deletingList[list.id]);
+            return (
+              <li key={list.id}>
+                <div className="list-header">
+                  <div className="list-header-info">
+                    <span className="list-name">{list.name}</span>
+                    <span className="muted small">{t('participants.listMembersCount', { count: list.members.length })}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="list-remove list-delete"
+                    onClick={() => handleDeleteList(list)}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? ICON_SPINNER : ICON_TRASH}
+                    <span className="sr-only">{dictionary.participants.deleteList}</span>
+                  </button>
+                </div>
+                {list.members.length === 0 ? (
+                  <p className="muted small">{dictionary.participants.listEmpty}</p>
+                ) : (
+                  <ul className="list-members">
+                    {list.members.map((member) => {
+                      const displayName = member.colleague?.contact?.name || member.colleague?.email || dictionary.participants.unknownUser;
+                      const email = member.colleague?.contact?.email || member.colleague?.email || '';
+                      const key = `${list.id}:${member.colleagueId}`;
+                      const isRemoving = Boolean(removingFromList[key]);
+                      return (
+                        <li key={member.id} className="list-member">
+                          <div className="list-member-info">
+                            <span className="list-member-name">{displayName}</span>
+                            {email && <span className="muted small">{email}</span>}
+                          </div>
+                          <button
+                            type="button"
+                            className="list-remove"
+                            onClick={() => handleRemoveFromList(list.id, member.colleagueId)}
+                            disabled={isRemoving}
+                          >
+                            {isRemoving ? ICON_SPINNER : ICON_TRASH}
+                            <span className="sr-only">{dictionary.participants.removeFromList}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -270,28 +392,52 @@ export default function ParticipantsPage() {
           {renderListsManager()}
         </aside>
         <div className="participants-main">
-          <section className="participants-card participants-add-card">
-            <h3 className="participants-card-title">{dictionary.participants.addButton}</h3>
-            <form className="participants-add" onSubmit={handleAddColleague}>
-              <label>
-                {dictionary.participants.addLabel}
+          <section className="participants-add-card">
+            <h3 className="participants-card-title">{dictionary.participants.addSectionTitle}</h3>
+            <form className="participants-add-form" onSubmit={handleAddColleague}>
+              <div className="participants-add-row">
+                <label className="sr-only" htmlFor="add-colleague-email">{dictionary.participants.addLabel}</label>
                 <input
+                  id="add-colleague-email"
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="name@example.com"
+                  placeholder={dictionary.participants.addPlaceholder}
                   required
                 />
-              </label>
-              <div className="participants-add-lists">
-                <p className="muted small">{dictionary.participants.addListsLabel}</p>
-                <p className="muted small">{dictionary.participants.addListsHint}</p>
-                {lists.length === 0 ? (
-                  <p className="muted small">{dictionary.participants.noLists}</p>
-                ) : (
-                  <div className="checkbox-group">
+                <button type="submit" disabled={adding}>
+                  {adding ? dictionary.projects.creating : dictionary.participants.addButton}
+                </button>
+                <button
+                  type="button"
+                  className="list-picker-toggle"
+                  onClick={() => setListsPickerOpen((prev) => !prev)}
+                  disabled={!hasLists}
+                  aria-expanded={listsPickerOpen}
+                  aria-controls={hasLists ? 'participants-list-picker' : undefined}
+                >
+                  <span className="list-picker-text">
+                    <span className="primary">{dictionary.participants.addListsLabel}</span>
+                    <span className="secondary">{listSelectionSummary}</span>
+                  </span>
+                  <span className="list-picker-meta">
+                    {selectedListCount > 0 && <span className="badge">{selectedListCount}</span>}
+                    <span className={`chevron ${listsPickerOpen ? 'open' : ''}`} aria-hidden="true">v</span>
+                  </span>
+                </button>
+              </div>
+              {selectedListCount > 0 && (
+                <ul className="tag-list compact" aria-label={dictionary.participants.selectedListsLabel}>
+                  {selectedLists.map((list) => (
+                    <li key={list.id} className="tag-chip active readonly">{list.name}</li>
+                  ))}
+                </ul>
+              )}
+              {listsPickerOpen && hasLists && (
+                <div id="participants-list-picker" className="participants-list-picker" role="group" aria-label={dictionary.participants.addListsLabel}>
+                  <div className="checkbox-grid">
                     {lists.map((list) => (
-                      <label key={list.id} className="checkbox">
+                      <label key={list.id} className="checkbox list-picker-option">
                         <input
                           type="checkbox"
                           checked={newColleagueLists.includes(list.id)}
@@ -301,11 +447,11 @@ export default function ParticipantsPage() {
                       </label>
                     ))}
                   </div>
-                )}
-              </div>
-              <button type="submit" disabled={adding}>
-                {adding ? dictionary.projects.creating : dictionary.participants.addButton}
-              </button>
+                </div>
+              )}
+              {!hasLists && (
+                <p className="muted small">{dictionary.participants.noLists}</p>
+              )}
             </form>
           </section>
 
@@ -463,4 +609,3 @@ export default function ParticipantsPage() {
     </div>
   );
 }
-

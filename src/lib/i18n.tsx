@@ -149,8 +149,12 @@ const en = {
       description: 'Запрошуйте колег за email і призначайте їх на проєкти або завдання.',
       addLabel: 'Email',
       addButton: 'Додати колегу',
+      addSectionTitle: 'Додати колегу',
+      addPlaceholder: 'name@example.com',
       addListsLabel: 'Додати до списків',
       addListsHint: 'За бажанням: оберіть списки, до яких одразу додати цього колегу.',
+      listSelectionCount: 'Обрано списків: {{count}}',
+      selectedListsLabel: 'Вибрані списки',
       statusPending: 'Очікує реєстрації',
       statusRegistered: 'Зареєстрований користувач',
       assignProject: 'Призначити на проєкт',
@@ -171,6 +175,12 @@ const en = {
       addToListPlaceholder: 'Оберіть список',
       addToListButton: 'Додати до списку',
       addToListSuccess: 'Колегу додано до списку',
+      removeFromList: 'Видалити зі списку',
+      deleteList: 'Видалити список',
+      deleteListProgress: 'Видаляємо список...',
+      deleteListSuccess: 'Список видалено',
+      removeFromListProgress: 'Видаляємо...',
+      removeFromListSuccess: 'Колегу видалено зі списку',
       colleagueListsTitle: 'Списки',
       colleagueNoLists: 'Ще не входить до жодного списку.',
       colleagueAllLists: 'Вже у всіх списках.',
@@ -180,6 +190,7 @@ const en = {
       createListButton: 'Створити список',
       createListSuccess: 'Список успішно створено',
       listMembersCount: 'Учасників: {{count}}',
+      deleteListConfirm: 'Видалити список "{{name}}"? Учасники будуть відʼєднані.',
       listEmpty: 'Поки що немає учасників.',
       noLists: 'Списків ще немає. Створіть перший вище.',
       unknownUser: 'Невідомий користувач',
@@ -190,6 +201,8 @@ const en = {
         assignTaskFailed: 'Не вдалося призначити на завдання',
         createListFailed: 'Не вдалося створити список',
         addToListFailed: 'Не вдалося додати до списку',
+        removeFromListFailed: 'Не вдалося видалити зі списку',
+        deleteListFailed: 'Не вдалося видалити список',
       },
     },
     invites: {
@@ -301,4 +314,3 @@ export function useI18n() {
 }
 
 export type TranslationDictionary = Dictionary;
-
