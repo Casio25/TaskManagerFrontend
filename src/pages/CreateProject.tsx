@@ -200,6 +200,7 @@ export default function CreateProjectPage() {
               type="datetime-local"
               value={deadline}
               onChange={(e) => setDeadline(e.target.value)}
+              step={1800}
               required
             />
           </label>
@@ -272,6 +273,7 @@ export default function CreateProjectPage() {
                       onChange={(e) => updateTaskField(index, 'deadline', e.target.value)}
                       disabled={taskDeadlineDisabled}
                       max={taskDeadlineMax}
+                      step={1800}
                       required
                     />
                     <span className={`badge badge-${badge.tone}`} style={{ marginTop: 6 }}>{badge.label}</span>

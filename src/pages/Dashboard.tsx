@@ -1,7 +1,16 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { api, type ProjectOverview, type ProjectTaskSummary, type ColleagueList } from '../lib/api';
+import {
+  api,
+  mapTaskDetailToSummary,
+  type ProjectOverview,
+  type ProjectTaskSummary,
+  type ProjectTaskDetail,
+  type ColleagueList,
+  type TaskStatus,
+  type ProjectStatus,
+} from '../lib/api';
 import { useI18n, type TranslationDictionary } from '../lib/i18n';
 
 type Project = ProjectOverview;
@@ -27,6 +36,7 @@ type TasksListProps = {
   t: Translate;
   dictionary: TranslationDictionary;
   assignment?: AssignmentControls;
+  renderActions?: (task: ProjectTask) => ReactNode;
 };
 
 function computeDeadlineInfo(deadline: string | null | undefined, t: Translate): DeadlineInfo {
@@ -49,7 +59,7 @@ function formatDateTime(value: string | null | undefined, t: Translate) {
   return Number.isNaN(date.getTime()) ? t('deadlines.invalid') : date.toLocaleString();
 }
 
-function TasksList({ tasks, t, dictionary, assignment }: TasksListProps) {
+function TasksList({ tasks, t, dictionary, assignment, renderActions }: TasksListProps) {
   const getMembers = (listId: number | '') => {
     if (!assignment || typeof listId !== 'number') return [];
     const list = assignment.lists.find((item) => item.id === listId);
@@ -62,6 +72,10 @@ function TasksList({ tasks, t, dictionary, assignment }: TasksListProps) {
       <summary>{t('dashboard.tasksSummary', { count: tasks.length })}</summary>
       <ul className="task-list">
         {tasks.map((task) => {
+          const statusKey = (task.status || 'NEW').toString().toUpperCase();
+          const statusLabel =
+            // @ts-expect-error runtime lookup for status dictionary
+            dictionary.dashboard.status?.[statusKey] ?? task.status;
           const badge = computeDeadlineInfo(task.deadline, t);
           const listId = assignment?.listSelections[task.id] ?? '';
           const memberOptions = getMembers(listId);
@@ -86,6 +100,33 @@ function TasksList({ tasks, t, dictionary, assignment }: TasksListProps) {
                   ? t('dashboard.taskAssignedTo', { name: task.assignedTo.name || task.assignedTo.email })
                   : dictionary.dashboard.taskUnassigned}
               </div>
+              <div className="task-status-row">
+                <span className={`status-chip status-${statusKey.toLowerCase()}`}>{statusLabel}</span>
+                {task.submittedAt && (
+                  <span className="muted small">
+                    {t('dashboard.submittedInfo', {
+                      name: task.submittedBy?.name || task.submittedBy?.email || dictionary.dashboard.unknownUser,
+                      date: formatDateTime(task.submittedAt, t),
+                    })}
+                  </span>
+                )}
+                {task.completedAt && (
+                  <span className="muted small">
+                    {t('dashboard.completedInfo', {
+                      name: task.completedBy?.name || task.completedBy?.email || dictionary.dashboard.unknownUser,
+                      date: formatDateTime(task.completedAt, t),
+                    })}
+                  </span>
+                )}
+                {!task.submittedAt && statusKey === 'SUBMITTED' && (
+                  <span className="muted small">{dictionary.dashboard.submitPendingInfo}</span>
+                )}
+              </div>
+              {renderActions && (
+                <div className="task-actions">
+                  {renderActions(task)}
+                </div>
+              )}
               {assignment && !task.assignedTo && (
                 <div className="task-assign">
                   <select
@@ -155,6 +196,8 @@ export default function DashboardPage() {
   const [taskListSelections, setTaskListSelections] = useState<Record<number, number | ''>>({});
   const [taskUserSelections, setTaskUserSelections] = useState<Record<number, number | ''>>({});
   const [assigningFromList, setAssigningFromList] = useState<Record<number, boolean>>({});
+  const [taskUpdating, setTaskUpdating] = useState<Record<number, boolean>>({});
+  const [projectStatusUpdating, setProjectStatusUpdating] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     if (!notice) return;
@@ -288,12 +331,178 @@ export default function DashboardPage() {
     }
   };
 
+  const applyTaskDetail = (detail: ProjectTaskDetail) => {
+    const summary = mapTaskDetailToSummary(detail);
+    const projectId = detail.project.id;
+    const apply = (projects: Project[]) =>
+      projects.map((project) =>
+        project.id === projectId
+          ? {
+              ...project,
+              tasks: project.tasks.map((task) => (task.id === summary.id ? { ...task, ...summary } : task)),
+            }
+          : project,
+      );
+    setAdmin((prev) => apply(prev));
+    setMember((prev) => apply(prev));
+  };
+
+  const applyProjectOverview = (overview: ProjectOverview) => {
+    const apply = (projects: Project[]) =>
+      projects.map((project) => (project.id === overview.id ? overview : project));
+    setAdmin((prev) => apply(prev));
+    setMember((prev) => apply(prev));
+  };
+
+  const updateTask = async (
+    _projectId: number,
+    taskId: number,
+    action: () => Promise<ProjectTaskDetail>,
+    successKey: keyof typeof dictionary.dashboard,
+  ) => {
+    setError(null);
+    setNotice(null);
+    setTaskUpdating((prev) => ({ ...prev, [taskId]: true }));
+    try {
+      const detail = await action();
+      applyTaskDetail(detail);
+      await loadDashboardData();
+      const successMessage = dictionary.dashboard[successKey];
+      if (typeof successMessage === 'string') {
+        setNotice(successMessage);
+      }
+    } catch (e: any) {
+      setError(e.message || dictionary.dashboard.updateFailed);
+    } finally {
+      setTaskUpdating((prev) => ({ ...prev, [taskId]: false }));
+    }
+  };
+
+  const handleSubmitTask = (projectId: number, taskId: number) =>
+    updateTask(projectId, taskId, () => api.completeTask(taskId), 'submitSuccess');
+
+  const handleApproveTask = (projectId: number, taskId: number) =>
+    updateTask(projectId, taskId, () => api.completeTask(taskId), 'approveSuccess');
+
+  const handleCompleteTask = (projectId: number, taskId: number) =>
+    updateTask(projectId, taskId, () => api.completeTask(taskId), 'completeSuccess');
+
+  const handleReopenTask = (projectId: number, taskId: number) =>
+    updateTask(projectId, taskId, () => api.reopenTask(taskId), 'reopenSuccess');
+
+  const handleProjectStatusChange = async (projectId: number, status: ProjectStatus) => {
+    setError(null);
+    setNotice(null);
+    setProjectStatusUpdating((prev) => ({ ...prev, [projectId]: true }));
+    try {
+      const updated = await api.updateProjectStatus(projectId, status);
+      applyProjectOverview(updated);
+      await loadDashboardData();
+      const successKey =
+        status === 'COMPLETED' ? 'projectCompleteSuccess' : 'projectReopenSuccess';
+      const successMessage = dictionary.dashboard[successKey];
+      if (typeof successMessage === 'string') {
+        setNotice(successMessage);
+      }
+    } catch (e: any) {
+      setError(e.message || dictionary.dashboard.projectStatusUpdateFailed);
+    } finally {
+      setProjectStatusUpdating((prev) => ({ ...prev, [projectId]: false }));
+    }
+  };
+
+  const renderAdminTaskActions = (projectId: number, task: ProjectTaskSummary) => {
+    const statusKey = (task.status || 'NEW').toString().toUpperCase() as TaskStatus;
+    const pending = !!taskUpdating[task.id];
+    const buttons: ReactNode[] = [];
+
+    if (statusKey === 'SUBMITTED') {
+      buttons.push(
+        <button
+          key="approve"
+          type="button"
+          onClick={() => handleApproveTask(projectId, task.id)}
+          disabled={pending}
+        >
+          {pending ? dictionary.dashboard.updatingTask : dictionary.dashboard.approveTask}
+        </button>,
+      );
+      buttons.push(
+        <button
+          key="reopen"
+          type="button"
+          className="secondary"
+          onClick={() => handleReopenTask(projectId, task.id)}
+          disabled={pending}
+        >
+          {pending ? dictionary.dashboard.updatingTask : dictionary.dashboard.reopenTask}
+        </button>,
+      );
+    } else if (statusKey === 'COMPLETED') {
+      buttons.push(
+        <button
+          key="reopen"
+          type="button"
+          className="secondary"
+          onClick={() => handleReopenTask(projectId, task.id)}
+          disabled={pending}
+        >
+          {pending ? dictionary.dashboard.updatingTask : dictionary.dashboard.reopenTask}
+        </button>,
+      );
+    } else {
+      buttons.push(
+        <button
+          key="complete"
+          type="button"
+          onClick={() => handleCompleteTask(projectId, task.id)}
+          disabled={pending}
+        >
+          {pending ? dictionary.dashboard.updatingTask : dictionary.dashboard.completeTask}
+        </button>,
+      );
+    }
+
+    if (!buttons.length) return null;
+    return buttons;
+  };
+
+  const renderMemberTaskActions = (projectId: number, task: ProjectTaskSummary) => {
+    const statusKey = (task.status || 'NEW').toString().toUpperCase() as TaskStatus;
+    const isAssignee = task.assignedTo?.id === user?.id;
+    const pending = !!taskUpdating[task.id];
+    if (!isAssignee) return null;
+    if (statusKey === 'COMPLETED') return null;
+    if (statusKey === 'SUBMITTED') {
+      return <span className="muted small">{dictionary.dashboard.submitPendingInfo}</span>;
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => handleSubmitTask(projectId, task.id)}
+        disabled={pending}
+      >
+        {pending ? dictionary.dashboard.submitInProgress : dictionary.dashboard.submitTask}
+      </button>
+    );
+  };
+
   const renderProjects = (projects: Project[], showDelete = false) => (
     <ul className="project-list">
       {projects.map((project) => {
         const badge = computeDeadlineInfo(project.deadline ?? null, t);
         const deadlineDate = project.deadline ? new Date(project.deadline) : null;
         const deadlineIso = deadlineDate ? deadlineDate.toISOString() : '';
+        const statusKey = (project.status || 'ACTIVE').toString().toUpperCase();
+        const projectStatusLabel =
+          // @ts-expect-error runtime lookup
+          dictionary.dashboard.projectStatusLabels?.[statusKey] ?? project.status;
+        const projectStatusPending = !!projectStatusUpdating[project.id];
+        const renderTaskActionsForProject = showDelete
+          ? (task: ProjectTaskSummary) => renderAdminTaskActions(project.id, task)
+          : (task: ProjectTaskSummary) => renderMemberTaskActions(project.id, task);
+
         return (
           <li key={project.id} id={`project-${project.id}`} className={`project-item${project.id === focusedProjectId ? " project-focused" : ""}`}>
             <div className="project-title">{project.name}</div>
@@ -309,6 +518,47 @@ export default function DashboardPage() {
                 </span>
               ) : (
                 <span className="muted">{t('deadlines.none')}</span>
+              )}
+            </div>
+            <div className="project-status-block">
+              <div className="project-status-row">
+                <span>{dictionary.dashboard.projectStatusLabel}: </span>
+                <span className={`status-chip status-${statusKey.toLowerCase()}`}>{projectStatusLabel}</span>
+              </div>
+              {project.completedAt && (
+                <span className="muted small">
+                  {t('dashboard.projectCompletedInfo', {
+                    name: project.completedBy?.name || project.completedBy?.email || dictionary.dashboard.unknownUser,
+                    date: formatDateTime(project.completedAt, t),
+                  })}
+                </span>
+              )}
+              {showDelete && (
+                <div className="project-status-actions">
+                  {project.status === 'COMPLETED' ? (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => handleProjectStatusChange(project.id, 'ACTIVE')}
+                      disabled={projectStatusPending}
+                    >
+                      {projectStatusPending
+                        ? dictionary.dashboard.updatingProject
+                        : dictionary.dashboard.reopenProject}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => handleProjectStatusChange(project.id, 'COMPLETED')}
+                      disabled={projectStatusPending}
+                    >
+                      {projectStatusPending
+                        ? dictionary.dashboard.updatingProject
+                        : dictionary.dashboard.markProjectComplete}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             {showDelete && (
@@ -366,6 +616,7 @@ export default function DashboardPage() {
                     }
                   : undefined
               }
+              renderActions={renderTaskActionsForProject}
             />
           </li>
         );

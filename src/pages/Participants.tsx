@@ -6,6 +6,7 @@ import {
   type ColleagueList,
   type ProjectOverview,
   type ProjectTaskDetail,
+  type TagPerformanceSummary,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
@@ -39,6 +40,13 @@ export default function ParticipantsPage() {
   const [creatingList, setCreatingList] = useState(false);
   const [deletingList, setDeletingList] = useState<Record<number, boolean>>({});
   const [removingFromList, setRemovingFromList] = useState<Record<string, boolean>>({});
+  const formatDateTime = (value: string | null | undefined) => {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+  };
+  const formatAverage = (value: number) => value.toFixed(1);
+  const formatScore = (value?: number | null) => (typeof value === 'number' ? value.toFixed(1) : '—');
 
   const ICON_SPINNER = '\u23F3';
   const ICON_TRASH = '\u{1F5D1}';
@@ -303,6 +311,47 @@ export default function ParticipantsPage() {
     );
   };
 
+  const renderPerformanceSummary = (summary?: TagPerformanceSummary[]) => {
+    if (!summary || summary.length === 0) {
+      return <p className="muted small">{dictionary.participants.performanceEmpty}</p>;
+    }
+
+    return (
+      <ul className="performance-list">
+        {summary.map((item) => {
+          const averages = item.averages;
+          const last = item.lastRating;
+          return (
+            <li key={item.tag.id} className="performance-item">
+              <div className="performance-tag">{item.tag.name}</div>
+              <div className="performance-metrics">
+                <span>{dictionary.participants.performanceMetrics.punctuality}: {formatAverage(averages.punctuality)}</span>
+                <span>{dictionary.participants.performanceMetrics.teamwork}: {formatAverage(averages.teamwork)}</span>
+                <span>{dictionary.participants.performanceMetrics.quality}: {formatAverage(averages.quality)}</span>
+              </div>
+              <div className="performance-meta muted small">
+                {t('participants.performanceRatingsCount', { count: item.ratingsCount })}
+              </div>
+              {last && (
+                <div className="performance-last muted small">
+                  <div>{t('participants.performanceLastRating', {
+                    date: formatDateTime(last.ratedAt ?? null) || '',
+                    taskId: last.taskId ?? '',
+                  })}</div>
+                  <div className="performance-last-metrics">
+                    <span>{dictionary.participants.performanceMetrics.punctuality}: {formatScore(last.punctuality)}</span>
+                    <span>{dictionary.participants.performanceMetrics.teamwork}: {formatScore(last.teamwork)}</span>
+                    <span>{dictionary.participants.performanceMetrics.quality}: {formatScore(last.quality)}</span>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
   const renderListsManager = () => (
     <div className="participants-card participants-sidebar-card">
       <h3 className="participants-card-title">{dictionary.participants.listsTitle}</h3>
@@ -490,6 +539,17 @@ export default function ParticipantsPage() {
                       </span>
                     </div>
 
+                    <div className="colleague-stats">
+                      <div className="stat-item">
+                        <div className="stat-number">{colleague.completedProjects ?? 0}</div>
+                        <div className="muted small">{dictionary.participants.completedProjectsLabel}</div>
+                      </div>
+                      <div className="stat-item">
+                        <div className="stat-number">{colleague.completedTasks ?? 0}</div>
+                        <div className="muted small">{dictionary.participants.completedTasksLabel}</div>
+                      </div>
+                    </div>
+
                     <div className="assign-block">
                       <h4>{dictionary.participants.assignProject}</h4>
                       <div className="assign-row">
@@ -595,6 +655,11 @@ export default function ParticipantsPage() {
                     <div className="assign-block">
                       <h5>{dictionary.participants.assignedTasksTitle}</h5>
                       {renderAssignedTasks(colleague)}
+                    </div>
+
+                    <div className="assign-block">
+                      <h5>{dictionary.participants.performanceTitle}</h5>
+                      {renderPerformanceSummary(colleague.performanceSummary)}
                     </div>
                   </section>
                 );

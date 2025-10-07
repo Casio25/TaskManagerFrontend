@@ -7,14 +7,43 @@ export type User = {
   updatedAt: string;
 };
 
+export type ProjectStatus = 'ACTIVE' | 'COMPLETED';
+
+export type TaskStatus =
+  | 'NEW'
+  | 'IN_PROGRESS'
+  | 'SUBMITTED'
+  | 'HELP_REQUESTED'
+  | 'DECLINED'
+  | 'COMPLETED';
+
+type TaskUserRef = { id: number; name: string; email: string };
+
 export type ProjectTaskSummary = {
   id: number;
   title: string;
   description?: string | null;
-  status: string;
+  status: TaskStatus | string;
   deadline: string | null;
+  submittedAt?: string | null;
+  completedAt?: string | null;
+  submittedBy?: TaskUserRef | null;
+  completedBy?: TaskUserRef | null;
   tags: string[];
-  assignedTo?: { id: number; name: string; email: string } | null;
+  assignedTo?: TaskUserRef | null;
+};
+
+export type TagPerformanceSummary = {
+  tag: { id: number; name: string };
+  averages: { punctuality: number; teamwork: number; quality: number };
+  ratingsCount: number;
+  lastRating: {
+    taskId?: number | null;
+    ratedAt?: string | null;
+    punctuality?: number | null;
+    teamwork?: number | null;
+    quality?: number | null;
+  } | null;
 };
 
 export type ProjectOverview = {
@@ -25,6 +54,9 @@ export type ProjectOverview = {
   createdAt: string;
   updatedAt?: string | null;
   deadline?: string | null;
+  status: ProjectStatus | string;
+  completedAt?: string | null;
+  completedBy?: TaskUserRef | null;
   tasks: ProjectTaskSummary[];
 };
 
@@ -56,6 +88,9 @@ export type Colleague = {
   assignedProjects: ParticipantProject[];
   assignedTasks: ParticipantTask[];
   lists: { id: number; name: string }[];
+  completedProjects?: number;
+  completedTasks?: number;
+  performanceSummary?: TagPerformanceSummary[];
 };
 
 export type ColleagueListMember = {
@@ -80,10 +115,47 @@ export type ProjectTaskDetail = {
   id: number;
   title: string;
   description?: string | null;
-  status: string;
+  status: TaskStatus | string;
   deadline: string | null;
-  assignedTo?: { id: number; name: string; email: string } | null;
+  submittedAt?: string | null;
+  completedAt?: string | null;
+  submittedBy?: TaskUserRef | null;
+  completedBy?: TaskUserRef | null;
+  assignedTo?: TaskUserRef | null;
+  tags: string[];
   project: { id: number; name: string; color?: string | null };
+};
+
+export type TaskRatingPerformance = {
+  tagId: number;
+  tagName: string;
+  summary: {
+    averagePunctuality: number;
+    averageTeamwork: number;
+    averageQuality: number;
+    ratingsCount: number;
+    lastPunctuality?: number | null;
+    lastTeamwork?: number | null;
+    lastQuality?: number | null;
+    lastTaskId?: number | null;
+    lastRatedAt?: string | null;
+  } | null;
+};
+
+export type TaskRatingResponse = {
+  rating: {
+    id: number;
+    punctuality: number;
+    teamwork: number;
+    quality: number;
+    comments?: string | null;
+    userId?: number | null;
+    projectId?: number | null;
+    taskId?: number | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  performances: TaskRatingPerformance[];
 };
 
 export type CalendarTask = {
@@ -103,6 +175,55 @@ export type AuthResponse = {
 };
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const toUserRef = (user: any | null | undefined): TaskUserRef | null => {
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name ?? user.email,
+    email: user.email,
+  };
+};
+
+const toTagNames = (tags: any[] | undefined): string[] =>
+  (tags ?? [])
+    .map((link) => link?.tag?.name ?? link?.name ?? link)
+    .filter((tag): tag is string => typeof tag === 'string' && tag.length > 0);
+
+const toProjectTaskDetail = (task: any): ProjectTaskDetail => ({
+  id: task.id,
+  title: task.title,
+  description: task.description ?? null,
+  status: (task.status ?? 'NEW') as TaskStatus,
+  deadline: task.deadline ?? null,
+  submittedAt: task.submittedAt ?? null,
+  completedAt: task.completedAt ?? null,
+  submittedBy: toUserRef(task.submittedBy),
+  completedBy: toUserRef(task.completedBy),
+  assignedTo: toUserRef(task.assignedTo),
+  tags: toTagNames(task.tags),
+  project: {
+    id: task.project?.id ?? task.projectId ?? 0,
+    name: task.project?.name ?? '',
+    color: task.project?.color ?? null,
+  },
+});
+
+export const mapTaskDetailToSummary = (
+  detail: ProjectTaskDetail,
+): ProjectTaskSummary => ({
+  id: detail.id,
+  title: detail.title,
+  description: detail.description ?? null,
+  status: detail.status,
+  deadline: detail.deadline,
+  submittedAt: detail.submittedAt ?? null,
+  completedAt: detail.completedAt ?? null,
+  submittedBy: detail.submittedBy ?? null,
+  completedBy: detail.completedBy ?? null,
+  tags: detail.tags,
+  assignedTo: detail.assignedTo ?? null,
+});
 
 function getHeaders(auth = false) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -181,6 +302,32 @@ export const api = {
       headers: getHeaders(true),
     }),
 
+  updateProjectStatus: (projectId: number, status: 'ACTIVE' | 'COMPLETED') =>
+    http<ProjectOverview>(`/projects/${projectId}/status`, {
+      method: 'PATCH',
+      headers: getHeaders(true),
+      body: JSON.stringify({ status }),
+    }),
+
+  completeTask: (taskId: number) =>
+    http<any>(`/tasks/${taskId}/complete`, {
+      method: 'POST',
+      headers: getHeaders(true),
+    }).then(toProjectTaskDetail),
+
+  reopenTask: (taskId: number) =>
+    http<any>(`/tasks/${taskId}/reopen`, {
+      method: 'POST',
+      headers: getHeaders(true),
+    }).then(toProjectTaskDetail),
+
+  rateTask: (taskId: number, data: { punctuality: number; teamwork: number; quality: number; comments?: string }) =>
+    http<TaskRatingResponse>(`/tasks/${taskId}/rate`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: JSON.stringify(data),
+    }),
+
   colleaguesList: () => http<Colleague[]>(
     '/colleagues',
     { headers: getHeaders(true) },
@@ -236,8 +383,14 @@ export const api = {
       method: 'POST',
       headers: getHeaders(true),
       body: JSON.stringify({ taskId }),
-    }),
+    }).then((response) =>
+      response.lastAssignedTask
+        ? { ...response, lastAssignedTask: toProjectTaskDetail(response.lastAssignedTask) }
+        : response,
+    ),
 
   tasksByProject: (projectId: number) =>
-    http<ProjectTaskDetail[]>(`/tasks/project/${projectId}`, { headers: getHeaders(true) }),
+    http<any[]>(`/tasks/project/${projectId}`, { headers: getHeaders(true) }).then((tasks) =>
+      tasks.map(toProjectTaskDetail),
+    ),
 };

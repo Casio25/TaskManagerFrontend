@@ -261,6 +261,71 @@ button + button { margin-left: 8px; }
   gap: 12px;
   margin-bottom: 6px;
 }
+.task-status-row {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+.status-chip.status-new,
+.status-chip.status-in_progress {
+  background: rgba(37, 99, 235, 0.15);
+  color: #1d4ed8;
+}
+.status-chip.status-submitted {
+  background: rgba(249, 115, 22, 0.18);
+  color: #c2410c;
+}
+.status-chip.status-help_requested {
+  background: rgba(234, 179, 8, 0.2);
+  color: #854d0e;
+}
+.status-chip.status-declined {
+  background: rgba(220, 38, 38, 0.2);
+  color: var(--danger);
+}
+.status-chip.status-completed {
+  background: rgba(5, 150, 105, 0.2);
+  color: #047857;
+}
+.task-actions {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.task-actions button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+}
+.task-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.task-actions button.secondary {
+  background: var(--surface-muted);
+}
+.task-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .task-title {
   font-weight: 600;
 }
@@ -793,6 +858,89 @@ button + button { margin-left: 8px; }
 
 .task-assign button {
   white-space: nowrap;
+}
+
+.project-status-block {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.project-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.project-status-actions button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  cursor: pointer;
+}
+.project-status-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.project-status-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.colleague-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  min-width: 120px;
+}
+.stat-number {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.performance-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.performance-item {
+  background: var(--surface-muted);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.performance-tag {
+  font-weight: 600;
+}
+.performance-metrics,
+.performance-last-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.85rem;
+}
+.performance-meta {
+  font-size: 0.8rem;
+}
+.performance-last {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
 }
 
 
