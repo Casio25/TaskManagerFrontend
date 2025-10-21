@@ -176,6 +176,14 @@ button.danger { background: var(--danger); color: #ffffff; }
 .task-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag-chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.85rem; }
 .tag-chip.active { border-color: var(--accent); background: rgba(37, 99, 235, 0.1); color: var(--accent); }
+.selected-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.selected-tags .muted { margin-top: 4px; }
+.tag-chip.removable { display: inline-flex; align-items: center; gap: 6px; }
+.tag-chip-label { pointer-events: none; }
+.remove-icon { font-size: 0.9rem; line-height: 1; pointer-events: none; }
+.tag-input { margin-top: 12px; }
+.tag-input-row { display: flex; gap: 8px; margin-top: 4px; }
+.tag-input-row input { flex: 1; }
 
 .filter { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 16px 0; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 1px 2px var(--shadow); }
 .filter-field { display: flex; flex-direction: column; min-width: 160px; }

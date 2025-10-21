@@ -39,6 +39,7 @@ export default function CreateProjectPage() {
   const [deadline, setDeadline] = useState('');
   const [color, setColor] = useState<string>(COLOR_OPTIONS[0]);
   const [tasksInput, setTasksInput] = useState<NewTask[]>([createEmptyTask()]);
+  const [newTagInputs, setNewTagInputs] = useState<string[]>(['']);
   const [creating, setCreating] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -70,6 +71,7 @@ export default function CreateProjectPage() {
 
   const addTask = () => {
     setTasksInput((prev) => [...prev, createEmptyTask()]);
+    setNewTagInputs((prev) => [...prev, '']);
   };
 
   const updateTaskField = (index: number, field: keyof NewTask, value: string) => {
@@ -81,16 +83,59 @@ export default function CreateProjectPage() {
     setTasksInput((prev) =>
       prev.map((task, i) => {
         if (i !== index) return task;
-        const exists = task.tags.includes(tag);
-        const tags = exists ? task.tags.filter((t) => t !== tag) : [...task.tags, tag];
-        return { ...task, tags };
+        const hasTag = task.tags.some((value) => value.toLowerCase() === tag.toLowerCase());
+        const nextTags = hasTag
+          ? task.tags.filter((value) => value.toLowerCase() !== tag.toLowerCase())
+          : [...task.tags, tag];
+        return { ...task, tags: nextTags };
       }),
     );
     setTaskError(null);
   };
 
+  const removeTag = (index: number, tag: string) => {
+    setTasksInput((prev) =>
+      prev.map((task, i) =>
+        i === index
+          ? { ...task, tags: task.tags.filter((value) => value.toLowerCase() !== tag.toLowerCase()) }
+          : task,
+      ),
+    );
+    setTaskError(null);
+  };
+
+  const updateCustomTagInput = (index: number, value: string) => {
+    setNewTagInputs((prev) => prev.map((tag, i) => (i === index ? value : tag)));
+    setTaskError(null);
+  };
+
+  const addCustomTag = (index: number) => {
+    const rawValue = (newTagInputs[index] ?? '').trim();
+    if (!rawValue) {
+      setTaskError(t('projects.errors.tagInvalid'));
+      return;
+    }
+    if (rawValue.length < 2 || rawValue.length > 32) {
+      setTaskError(t('projects.errors.tagLength'));
+      return;
+    }
+    const normalized = rawValue.replace(/\s+/g, ' ');
+    const existingTags = tasksInput[index]?.tags ?? [];
+    const exists = existingTags.some((tag) => tag.toLowerCase() === normalized.toLowerCase());
+    if (exists) {
+      setTaskError(t('projects.errors.tagDuplicate'));
+      return;
+    }
+    setTasksInput((prev) =>
+      prev.map((task, i) => (i === index ? { ...task, tags: [...task.tags, normalized] } : task)),
+    );
+    setNewTagInputs((prev) => prev.map((tag, i) => (i === index ? '' : tag)));
+    setTaskError(null);
+  };
+
   const removeTask = (index: number) => {
     setTasksInput((prev) => prev.filter((_, i) => i !== index));
+    setNewTagInputs((prev) => prev.filter((_, i) => i !== index));
   };
 
   const resetForm = () => {
@@ -99,6 +144,7 @@ export default function CreateProjectPage() {
     setDeadline('');
     setColor(COLOR_OPTIONS[0]);
     setTasksInput([createEmptyTask()]);
+    setNewTagInputs(['']);
   };
 
   const onCreate = async (event: FormEvent<HTMLFormElement>) => {
@@ -279,10 +325,31 @@ export default function CreateProjectPage() {
                     <span className={`badge badge-${badge.tone}`} style={{ marginTop: 6 }}>{badge.label}</span>
                   </label>
                   <div>
+                    <div className="muted small">{dictionary.projects.selectedTags}</div>
+                    <div className="selected-tags">
+                      {task.tags.length === 0 ? (
+                        <span className="muted small">{dictionary.projects.noTagsSelected}</span>
+                      ) : (
+                        task.tags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            className="tag-chip removable"
+                            onClick={() => removeTag(index, tag)}
+                            aria-label={t('projects.removeTagAria', { tag })}
+                          >
+                            <span className="tag-chip-label">{tag}</span>
+                            <span aria-hidden className="remove-icon">×</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <div>
                     <div className="muted small">{dictionary.projects.tags}</div>
                     <div className="task-tags">
                       {TAG_OPTIONS.map((tag) => {
-                        const active = task.tags.includes(tag);
+                        const active = task.tags.some((value) => value.toLowerCase() === tag.toLowerCase());
                         return (
                           <button
                             key={tag}
@@ -294,6 +361,29 @@ export default function CreateProjectPage() {
                           </button>
                         );
                       })}
+                    </div>
+                  </div>
+                  <div className="tag-input">
+                    <label className="muted small" htmlFor={`custom-tag-${index}`}>
+                      {dictionary.projects.newTagLabel}
+                    </label>
+                    <div className="tag-input-row">
+                      <input
+                        id={`custom-tag-${index}`}
+                        value={newTagInputs[index] ?? ''}
+                        onChange={(event) => updateCustomTagInput(index, event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            addCustomTag(index);
+                          }
+                        }}
+                        placeholder={dictionary.projects.newTagPlaceholder}
+                        maxLength={32}
+                      />
+                      <button type="button" className="secondary" onClick={() => addCustomTag(index)}>
+                        {dictionary.projects.addTag}
+                      </button>
                     </div>
                   </div>
                 </div>
