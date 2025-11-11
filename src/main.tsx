@@ -13,6 +13,7 @@ import CreateProjectPage from './pages/CreateProject.tsx';
 import AcceptInvitePage from './pages/AcceptInvite.tsx';
 import CalendarMePage from './pages/CalendarMe.tsx';
 import ParticipantsPage from './pages/Participants.tsx';
+import HistoryPage from './pages/History.tsx';
 import HomePage from './pages/Home.tsx';
 
 createRoot(document.getElementById('root')!).render(
@@ -30,6 +31,7 @@ createRoot(document.getElementById('root')!).render(
                   <Route path="dashboard" element={<DashboardPage />} />
                   <Route path="projects" element={<CreateProjectPage />} />
                   <Route path="participants" element={<ParticipantsPage />} />
+                  <Route path="history" element={<HistoryPage />} />
                   <Route path="calendar" element={<CalendarMePage />} />
                   <Route path="invites/accept" element={<AcceptInvitePage />} />
                 </Route>

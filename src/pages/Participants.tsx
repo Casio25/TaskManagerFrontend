@@ -1,38 +1,33 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import {
-  api,
-  type AssignTaskResponse,
-  type Colleague,
-  type ColleagueList,
-  type ProjectOverview,
-  type ProjectTaskDetail,
-  type TagPerformanceSummary,
-} from '../lib/api';
+import { api, type Colleague, type ColleagueList, type TagPerformanceSummary, type PendingProjectRating, type ProjectRatingSummary, type ProjectRatingAverages } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
-function sanitizeColleague(payload: Colleague | AssignTaskResponse): Colleague {
-  const { lastAssignedTask, ...rest } = payload as AssignTaskResponse;
-  return rest as Colleague;
-}
+type RatingModalState = {
+  colleagueId: number;
+  colleagueName: string;
+  userId: number;
+  project: PendingProjectRating;
+  punctuality: number;
+  teamwork: number;
+  quality: number;
+  comments: string;
+  submitting: boolean;
+};
+
+const sanitizeColleague = (colleague: Colleague): Colleague => colleague;
 
 
 
 export default function ParticipantsPage() {
   const { dictionary, t } = useI18n();
   const [colleagues, setColleagues] = useState<Colleague[]>([]);
-  const [projects, setProjects] = useState<ProjectOverview[]>([]);
   const [lists, setLists] = useState<ColleagueList[]>([]);
-  const [projectTasks, setProjectTasks] = useState<Record<number, ProjectTaskDetail[]>>({});
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [ratingModal, setRatingModal] = useState<RatingModalState | null>(null);
   const [adding, setAdding] = useState(false);
-  const [projectSelections, setProjectSelections] = useState<Record<number, number | ''>>({});
-  const [assigningProject, setAssigningProject] = useState<Record<number, boolean>>({});
-  const [taskProjectSelections, setTaskProjectSelections] = useState<Record<number, number | ''>>({});
-  const [taskSelections, setTaskSelections] = useState<Record<number, number | ''>>({});
-  const [assigningTask, setAssigningTask] = useState<Record<number, boolean>>({});
   const [newColleagueLists, setNewColleagueLists] = useState<number[]>([]);
   const [listsPickerOpen, setListsPickerOpen] = useState(false);
   const [listSelections, setListSelections] = useState<Record<number, number | ''>>({});
@@ -57,13 +52,11 @@ export default function ParticipantsPage() {
       setError(null);
       setNotice(null);
       try {
-        const [colleagueData, projectData, listData] = await Promise.all([
+        const [colleagueData, listData] = await Promise.all([
           api.colleaguesList(),
-          api.projectsMine(),
           api.colleagueLists(),
         ]);
         setColleagues(colleagueData);
-        setProjects(projectData.admin);
         setLists(listData);
       } catch (err: any) {
         setError(err.message || dictionary.projects.errors.createFailed);
@@ -86,15 +79,6 @@ export default function ParticipantsPage() {
     }
   }, [lists]);
 
-  const availableProjectsByColleague = useMemo(() => {
-    const map: Record<number, ProjectOverview[]> = {};
-    colleagues.forEach((colleague) => {
-      const ids = new Set(colleague.assignedProjects.map((project) => project.id));
-      map[colleague.id] = projects.filter((project) => !ids.has(project.id));
-    });
-    return map;
-  }, [colleagues, projects]);
-
   const availableListsByColleague = useMemo(() => {
     const map: Record<number, ColleagueList[]> = {};
     colleagues.forEach((colleague) => {
@@ -111,10 +95,98 @@ export default function ParticipantsPage() {
     ? t('participants.listSelectionCount', { count: selectedListCount })
     : dictionary.participants.addListsHint;
 
-  const ensureProjectTasks = async (projectId: number, force = false) => {
-    if (!force && projectTasks[projectId]) return;
-    const data = await api.tasksByProject(projectId);
-    setProjectTasks((prev) => ({ ...prev, [projectId]: data }));
+  const openProjectRatingModal = (colleague: Colleague, project: PendingProjectRating) => {
+    if (!colleague.contact?.id) return;
+    setRatingModal({
+      colleagueId: colleague.id,
+      colleagueName: colleague.contact.name || colleague.email,
+      userId: colleague.contact.id,
+      project,
+      punctuality: 8,
+      teamwork: 8,
+      quality: 8,
+      comments: '',
+      submitting: false,
+    });
+  };
+
+  const closeProjectRatingModal = () => {
+    setRatingModal(null);
+  };
+
+  const updateProjectRatingScore = (field: 'punctuality' | 'teamwork' | 'quality', value: number) => {
+    setRatingModal((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const updateProjectRatingComments = (value: string) => {
+    setRatingModal((prev) => (prev ? { ...prev, comments: value } : prev));
+  };
+
+  const handleSubmitProjectRating = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!ratingModal) return;
+    setError(null);
+    setRatingModal((prev) => (prev ? { ...prev, submitting: true } : prev));
+    try {
+      const response = await api.rateProject(ratingModal.project.projectId, {
+        userId: ratingModal.userId,
+        punctuality: ratingModal.punctuality,
+        teamwork: ratingModal.teamwork,
+        quality: ratingModal.quality,
+        comments: ratingModal.comments.trim() ? ratingModal.comments.trim() : undefined,
+      });
+      const { rating } = response;
+      const historyEntry: ProjectRatingSummary = {
+        projectId: ratingModal.project.projectId,
+        projectName: ratingModal.project.projectName,
+        deadline: ratingModal.project.deadline ?? null,
+        completedAt: ratingModal.project.completedAt ?? null,
+        color: ratingModal.project.color ?? null,
+        rating: {
+          id: rating.id,
+          punctuality: rating.punctuality,
+          teamwork: rating.teamwork,
+          quality: rating.quality,
+          comments: rating.comments ?? null,
+          createdAt: rating.createdAt,
+          updatedAt: rating.updatedAt,
+          ratedBy: null,
+        },
+      };
+      setColleagues((prev) =>
+        prev.map((item) => {
+          if (item.id !== ratingModal.colleagueId) return item;
+          const pending = (item.pendingProjectRatings ?? []).filter(
+            (pendingItem) => pendingItem.projectId !== ratingModal.project.projectId,
+          );
+          const history = [
+            historyEntry,
+            ...((item.projectRatings ?? []).filter((entry) => entry.projectId !== historyEntry.projectId)),
+          ];
+          const ratingValues = history.map((entry) => entry.rating);
+          const projectRatingAverages = ratingValues.length
+            ? {
+                count: ratingValues.length,
+                punctuality: ratingValues.reduce((total, value) => total + value.punctuality, 0) / ratingValues.length,
+                teamwork: ratingValues.reduce((total, value) => total + value.teamwork, 0) / ratingValues.length,
+                quality: ratingValues.reduce((total, value) => total + value.quality, 0) / ratingValues.length,
+              }
+            : null;
+          return {
+            ...item,
+            pendingProjectRatings: pending,
+            projectRatings: history,
+            projectRatingAverages,
+          };
+        }),
+      );
+      setNotice(dictionary.participants.rateProjectSuccess);
+      setRatingModal(null);
+    } catch (err: any) {
+      setError(err.message || dictionary.participants.rateProjectError);
+    } finally {
+      setRatingModal((prev) => (prev ? { ...prev, submitting: false } : prev));
+    }
   };
 
   const handleToggleNewColleagueList = (listId: number) => {
@@ -233,88 +305,10 @@ export default function ParticipantsPage() {
     }
   };
 
-  const handleAssignProject = async (colleague: Colleague) => {
-    const projectId = projectSelections[colleague.id];
-    if (!projectId) return;
-    setError(null);
-    setNotice(null);
-    setAssigningProject((prev) => ({ ...prev, [colleague.id]: true }));
-    try {
-      const response = await api.assignColleagueToProject(colleague.id, projectId);
-      setColleagues((prev) => prev.map((item) => (item.id === response.id ? response : item)));
-      setProjectSelections((prev) => ({ ...prev, [colleague.id]: '' }));
-      setNotice(dictionary.participants.successAssignProject);
-    } catch (err: any) {
-      setError(err.message || dictionary.participants.errors.assignProjectFailed);
-    } finally {
-      setAssigningProject((prev) => ({ ...prev, [colleague.id]: false }));
-    }
-  };
-
-  const handleTaskProjectChange = async (colleagueId: number, projectId: number | '') => {
-    setTaskProjectSelections((prev) => ({ ...prev, [colleagueId]: projectId }));
-    setTaskSelections((prev) => ({ ...prev, [colleagueId]: '' }));
-    if (typeof projectId === 'number') {
-      try {
-        await ensureProjectTasks(projectId);
-      } catch (err) {
-        // ignore task load errors here
-      }
-    }
-  };
-
-  const handleAssignTask = async (colleague: Colleague) => {
-    const projectId = taskProjectSelections[colleague.id];
-    const taskId = taskSelections[colleague.id];
-    if (!projectId || !taskId) return;
-    setError(null);
-    setNotice(null);
-    setAssigningTask((prev) => ({ ...prev, [colleague.id]: true }));
-    try {
-      const response = await api.assignColleagueToTask(colleague.id, taskId);
-      setColleagues((prev) => prev.map((item) => (item.id === response.id ? sanitizeColleague(response) : item)));
-      setTaskSelections((prev) => ({ ...prev, [colleague.id]: '' }));
-      await ensureProjectTasks(projectId, true);
-      setNotice(dictionary.participants.successAssignTask);
-    } catch (err: any) {
-      setError(err.message || dictionary.participants.errors.assignTaskFailed);
-    } finally {
-      setAssigningTask((prev) => ({ ...prev, [colleague.id]: false }));
-    }
-  };
-
-  const renderAssignedProjects = (colleague: Colleague) => {
-    if (!colleague.assignedProjects.length) return <span className="muted small">{dictionary.participants.emptyProjects}</span>;
-    return (
-      <ul className="tag-list">
-        {colleague.assignedProjects.map((project) => (
-          <li key={project.id} className="tag-chip active readonly">{project.name}</li>
-        ))}
-      </ul>
-    );
-  };
-
-  const renderAssignedTasks = (colleague: Colleague) => {
-    if (!colleague.assignedTasks.length) return <span className="muted small">{dictionary.participants.emptyTasks}</span>;
-    return (
-      <ul className="task-list compact">
-        {colleague.assignedTasks.map((task) => {
-          const projectName = projects.find((project) => project.id === task.projectId)?.name ?? `#${task.projectId}`;
-          return (
-            <li key={task.id}>
-              <div className="task-title">{task.title}</div>
-              <div className="muted small">{projectName}</div>
-            </li>
-          );
-        })}
-      </ul>
-    );
-  };
-
-  const renderPerformanceSummary = (summary?: TagPerformanceSummary[]) => {
-    if (!summary || summary.length === 0) {
-      return <p className="muted small">{dictionary.participants.performanceEmpty}</p>;
-    }
+const renderPerformanceSummary = (summary?: TagPerformanceSummary[]) => {
+  if (!summary || summary.length === 0) {
+    return <p className="muted small">{dictionary.participants.performanceEmpty}</p>;
+  }
 
     return (
       <ul className="performance-list">
@@ -343,6 +337,103 @@ export default function ParticipantsPage() {
                     <span>{dictionary.participants.performanceMetrics.teamwork}: {formatScore(last.teamwork)}</span>
                     <span>{dictionary.participants.performanceMetrics.quality}: {formatScore(last.quality)}</span>
                   </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  const renderProjectRatingAverages = (averages?: ProjectRatingAverages | null) => {
+    if (!averages) {
+      return <p className="muted small">{dictionary.participants.projectRatingsOverallEmpty}</p>;
+    }
+    return (
+      <div className="project-rating-averages">
+        <div className="rating-metrics">
+          <span>{dictionary.participants.rateProjectPunctuality}: {formatAverage(averages.punctuality)}</span>
+          <span>{dictionary.participants.rateProjectTeamwork}: {formatAverage(averages.teamwork)}</span>
+          <span>{dictionary.participants.rateProjectQuality}: {formatAverage(averages.quality)}</span>
+        </div>
+        <div className="muted small">
+          {t('participants.projectRatingsOverallCount', { count: averages.count })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPendingProjectRatings = (colleague: Colleague) => {
+    const pending = colleague.pendingProjectRatings ?? [];
+    if (pending.length === 0) {
+      return <p className="muted small">{dictionary.participants.projectRatingsPendingEmpty}</p>;
+    }
+    return (
+      <ul className="project-rating-list">
+        {pending.map((item) => {
+          const timeline = item.completedAt
+            ? t('participants.projectCompletedOn', { date: formatDateTime(item.completedAt) })
+            : item.deadline
+              ? t('participants.projectDeadlineOn', { date: formatDateTime(item.deadline) })
+              : '';
+          return (
+            <li key={item.projectId} className="project-rating-item">
+              <div className="project-rating-details">
+                <div className="task-title">{item.projectName}</div>
+                {timeline && <div className="muted small">{timeline}</div>}
+              </div>
+              <button
+                type="button"
+                onClick={() => openProjectRatingModal(colleague, item)}
+                disabled={!colleague.contact}
+              >
+                {dictionary.participants.projectRatingsRateAction}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  const renderProjectRatingsHistory = (ratings?: ProjectRatingSummary[]) => {
+    if (!ratings || ratings.length === 0) {
+      return <p className="muted small">{dictionary.participants.projectRatingsHistoryEmpty}</p>;
+    }
+    return (
+      <ul className="project-rating-history">
+        {ratings.map((entry) => {
+          const timeline = entry.completedAt
+            ? t('participants.projectCompletedOn', { date: formatDateTime(entry.completedAt) })
+            : entry.deadline
+              ? t('participants.projectDeadlineOn', { date: formatDateTime(entry.deadline) })
+              : '';
+          const ratedOn = t('participants.projectRatedOn', {
+            date: formatDateTime(entry.rating.updatedAt || entry.rating.createdAt),
+          });
+          return (
+            <li key={`${entry.projectId}-${entry.rating.id}`} className="project-rating-history-item">
+              <div className="project-rating-head">
+                <div>
+                  <div className="task-title">{entry.projectName}</div>
+                  {timeline && <div className="muted small">{timeline}</div>}
+                </div>
+                <div className="muted small">{ratedOn}</div>
+              </div>
+              <div className="rating-metrics">
+                <span>{dictionary.participants.rateProjectPunctuality}: {entry.rating.punctuality}</span>
+                <span>{dictionary.participants.rateProjectTeamwork}: {entry.rating.teamwork}</span>
+                <span>{dictionary.participants.rateProjectQuality}: {entry.rating.quality}</span>
+              </div>
+              {entry.rating.comments && (
+                <div className="muted small rating-comment">“{entry.rating.comments}”</div>
+              )}
+              {entry.rating.ratedBy && (
+                <div className="muted small">
+                  {t('participants.projectRatedBy', {
+                    name: entry.rating.ratedBy.name || entry.rating.ratedBy.email,
+                  })}
                 </div>
               )}
             </li>
@@ -384,11 +475,11 @@ export default function ParticipantsPage() {
                   </div>
                   <button
                     type="button"
-                    className="list-remove list-delete"
+                    className="icon-button danger"
                     onClick={() => handleDeleteList(list)}
                     disabled={isDeleting}
                   >
-                    {isDeleting ? ICON_SPINNER : ICON_TRASH}
+                    <span aria-hidden>{isDeleting ? ICON_SPINNER : ICON_TRASH}</span>
                     <span className="sr-only">{dictionary.participants.deleteList}</span>
                   </button>
                 </div>
@@ -409,11 +500,11 @@ export default function ParticipantsPage() {
                           </div>
                           <button
                             type="button"
-                            className="list-remove"
+                            className="icon-button danger"
                             onClick={() => handleRemoveFromList(list.id, member.colleagueId)}
                             disabled={isRemoving}
                           >
-                            {isRemoving ? ICON_SPINNER : ICON_TRASH}
+                            <span aria-hidden>{isRemoving ? ICON_SPINNER : ICON_TRASH}</span>
                             <span className="sr-only">{dictionary.participants.removeFromList}</span>
                           </button>
                         </li>
@@ -430,17 +521,18 @@ export default function ParticipantsPage() {
   );
 
   return (
-    <div className="container participants-page">
-      <div className="participants-header">
-        <h2>{dictionary.participants.title}</h2>
-        <p className="muted">{dictionary.participants.description}</p>
-      </div>
+    <>
+      <div className="container participants-page">
+        <div className="participants-header">
+          <h2>{dictionary.participants.title}</h2>
+          <p className="muted">{dictionary.participants.description}</p>
+        </div>
 
-      <div className="participants-layout">
-        <aside className="participants-sidebar">
-          {renderListsManager()}
-        </aside>
-        <div className="participants-main">
+        <div className="participants-layout">
+          <aside className="participants-sidebar">
+            {renderListsManager()}
+          </aside>
+          <div className="participants-main">
           <section className="participants-add-card">
             <h3 className="participants-card-title">{dictionary.participants.addSectionTitle}</h3>
             <form className="participants-add-form" onSubmit={handleAddColleague}>
@@ -515,155 +607,93 @@ export default function ParticipantsPage() {
             <p>{dictionary.errors.loading}</p>
           ) : (
             <div className="participants-grid">
-              {colleagues.map((colleague) => {
-                const registered = Boolean(colleague.contact);
-                const availableProjects = availableProjectsByColleague[colleague.id] ?? [];
-                const projectId = projectSelections[colleague.id] ?? '';
-                const taskProjectId = taskProjectSelections[colleague.id] ?? '';
-                const tasksForProject = typeof taskProjectId === 'number' ? projectTasks[taskProjectId] ?? [] : [];
-                const colleagueUserId = colleague.contact?.id;
-                const filteredTasks = tasksForProject.filter((task) => !task.assignedTo || task.assignedTo.id === colleagueUserId);
-                const taskId = taskSelections[colleague.id] ?? '';
-                const availableLists = availableListsByColleague[colleague.id] ?? [];
-                const listSelection = listSelections[colleague.id] ?? '';
+          {colleagues.map((colleague) => {
+            const registered = Boolean(colleague.contact);
+            const availableLists = availableListsByColleague[colleague.id] ?? [];
+            const listSelection = listSelections[colleague.id] ?? '';
+            const ratingAverages = colleague.projectRatingAverages;
 
-                return (
-                  <section key={colleague.id} className="colleague-card">
-                    <div className="colleague-header">
-                      <div>
-                        <div className="colleague-name">{colleague.contact?.name ?? colleague.email}</div>
-                        <div className="muted small">{colleague.email}</div>
-                      </div>
-                      <span className={`status-badge ${registered ? 'ok' : 'pending'}`}>
-                        {registered ? dictionary.participants.statusRegistered : dictionary.participants.statusPending}
-                      </span>
-                    </div>
+            return (
+              <section key={colleague.id} className="colleague-card">
+                <div className="colleague-header">
+                  <div>
+                    <div className="colleague-name">{colleague.contact?.name ?? colleague.email}</div>
+                    <div className="muted small">{colleague.email}</div>
+                  </div>
+                  <span className={`status-badge ${registered ? 'ok' : 'pending'}`}>
+                    {registered ? dictionary.participants.statusRegistered : dictionary.participants.statusPending}
+                  </span>
+                </div>
 
-                    <div className="colleague-stats">
-                      <div className="stat-item">
-                        <div className="stat-number">{colleague.completedProjects ?? 0}</div>
-                        <div className="muted small">{dictionary.participants.completedProjectsLabel}</div>
-                      </div>
-                      <div className="stat-item">
-                        <div className="stat-number">{colleague.completedTasks ?? 0}</div>
-                        <div className="muted small">{dictionary.participants.completedTasksLabel}</div>
-                      </div>
-                    </div>
+                <div className="colleague-stats">
+                  <div className="stat-item">
+                    <div className="stat-number">{colleague.completedProjects ?? 0}</div>
+                    <div className="muted small">{dictionary.participants.completedProjectsLabel}</div>
+                  </div>
+                  <div className="stat-item">
+                    <div className="stat-number">{colleague.completedTasks ?? 0}</div>
+                    <div className="muted small">{dictionary.participants.completedTasksLabel}</div>
+                  </div>
+                </div>
 
-                    <div className="assign-block">
-                      <h4>{dictionary.participants.assignProject}</h4>
-                      <div className="assign-row">
-                        <select
-                          value={projectId}
-                          onChange={(event) => setProjectSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
-                          disabled={!registered || availableProjects.length === 0 || assigningProject[colleague.id]}
-                        >
-                          <option value="">{dictionary.participants.projectPlaceholder}</option>
-                          {availableProjects.map((project) => (
-                            <option key={project.id} value={project.id}>{project.name}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => handleAssignProject(colleague)}
-                          disabled={!registered || !projectId || assigningProject[colleague.id]}
-                        >
-                          {assigningProject[colleague.id] ? dictionary.projects.creating : dictionary.participants.assignProjectButton}
-                        </button>
-                      </div>
-                      {!registered && <div className="muted small">{dictionary.participants.disabledAssign}</div>}
-                      {registered && availableProjects.length === 0 && (
-                        <div className="muted small">{dictionary.participants.emptyProjects}</div>
-                      )}
-                    </div>
+                <div className="assign-block">
+                  <h5>{dictionary.participants.projectRatingsTitle}</h5>
+                  <div className="project-ratings-section">
+                    <div className="project-ratings-subtitle">{dictionary.participants.projectRatingsOverallTitle}</div>
+                    {renderProjectRatingAverages(ratingAverages)}
+                  </div>
+                  <div className="project-ratings-section">
+                    <div className="project-ratings-subtitle">{dictionary.participants.projectRatingsPendingTitle}</div>
+                    {renderPendingProjectRatings(colleague)}
+                  </div>
+                  <div className="project-ratings-section">
+                    <div className="project-ratings-subtitle">{dictionary.participants.projectRatingsHistoryTitle}</div>
+                    {renderProjectRatingsHistory(colleague.projectRatings)}
+                  </div>
+                </div>
 
-                    <div className="assign-block">
-                      <h4>{dictionary.participants.assignTask}</h4>
-                      <div className="assign-row stack">
-                        <select
-                          value={taskProjectId}
-                          onChange={(event) => handleTaskProjectChange(colleague.id, event.target.value ? Number(event.target.value) : '')}
-                          disabled={!registered || projects.length === 0 || assigningTask[colleague.id]}
-                        >
-                          <option value="">{dictionary.participants.taskProjectPlaceholder}</option>
-                          {projects.map((project) => (
-                            <option key={project.id} value={project.id}>{project.name}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={taskId}
-                          onChange={(event) => setTaskSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
-                          disabled={!registered || !taskProjectId || filteredTasks.length === 0 || assigningTask[colleague.id]}
-                        >
-                          <option value="">{dictionary.participants.taskPlaceholder}</option>
-                          {filteredTasks.map((task) => (
-                            <option key={task.id} value={task.id}>{task.title}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => handleAssignTask(colleague)}
-                          disabled={!registered || !taskId || assigningTask[colleague.id]}
-                        >
-                          {assigningTask[colleague.id] ? dictionary.projects.creating : dictionary.participants.assignTaskButton}
-                        </button>
-                      </div>
-                      {registered && taskProjectId && filteredTasks.length === 0 && (
-                        <div className="muted small">{dictionary.participants.emptyTasks}</div>
-                      )}
-                    </div>
+                <div className="assign-block">
+                  <h5>{dictionary.participants.colleagueListsTitle}</h5>
+                  {colleague.lists.length === 0 ? (
+                    <p className="muted small">{dictionary.participants.colleagueNoLists}</p>
+                  ) : (
+                    <ul className="tag-list">
+                      {colleague.lists.map((list) => (
+                        <li key={list.id} className="tag-chip active readonly">{list.name}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="assign-row">
+                    <select
+                      value={listSelection}
+                      onChange={(event) => setListSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
+                      disabled={availableLists.length === 0}
+                    >
+                      <option value="">{dictionary.participants.addToListPlaceholder}</option>
+                      {availableLists.map((list) => (
+                        <option key={list.id} value={list.id}>{list.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleAddToList(colleague.id)}
+                      disabled={!listSelection}
+                    >
+                      {dictionary.participants.addToListButton}
+                    </button>
+                  </div>
+                  {availableLists.length === 0 && (
+                    <div className="muted small">{dictionary.participants.colleagueAllLists}</div>
+                  )}
+                </div>
 
-                    <div className="assign-block">
-                      <h5>{dictionary.participants.colleagueListsTitle}</h5>
-                      {colleague.lists.length === 0 ? (
-                        <p className="muted small">{dictionary.participants.colleagueNoLists}</p>
-                      ) : (
-                        <ul className="tag-list">
-                          {colleague.lists.map((list) => (
-                            <li key={list.id} className="tag-chip active readonly">{list.name}</li>
-                          ))}
-                        </ul>
-                      )}
-                      <div className="assign-row">
-                        <select
-                          value={listSelection}
-                          onChange={(event) => setListSelections((prev) => ({ ...prev, [colleague.id]: event.target.value ? Number(event.target.value) : '' }))}
-                          disabled={availableLists.length === 0}
-                        >
-                          <option value="">{dictionary.participants.addToListPlaceholder}</option>
-                          {availableLists.map((list) => (
-                            <option key={list.id} value={list.id}>{list.name}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => handleAddToList(colleague.id)}
-                          disabled={!listSelection}
-                        >
-                          {dictionary.participants.addToListButton}
-                        </button>
-                      </div>
-                      {availableLists.length === 0 && (
-                        <div className="muted small">{dictionary.participants.colleagueAllLists}</div>
-                      )}
-                    </div>
-
-                    <div className="assign-block">
-                      <h5>{dictionary.participants.assignedProjectsTitle}</h5>
-                      {renderAssignedProjects(colleague)}
-                    </div>
-                    <div className="assign-block">
-                      <h5>{dictionary.participants.assignedTasksTitle}</h5>
-                      {renderAssignedTasks(colleague)}
-                    </div>
-
-                    <div className="assign-block">
-                      <h5>{dictionary.participants.performanceTitle}</h5>
-                      {renderPerformanceSummary(colleague.performanceSummary)}
-                    </div>
-                  </section>
-                );
-              })}
+                <div className="assign-block">
+                  <h5>{dictionary.participants.performanceTitle}</h5>
+                  {renderPerformanceSummary(colleague.performanceSummary)}
+                </div>
+              </section>
+            );
+          })}
               {colleagues.length === 0 && !loading && (
                 <p className="muted">{dictionary.participants.noColleagues}</p>
               )}
@@ -671,6 +701,76 @@ export default function ParticipantsPage() {
           )}
         </div>
       </div>
-    </div>
+      </div>
+      {ratingModal && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="project-rating-title">
+            <h3 id="project-rating-title">{dictionary.participants.rateProjectTitle}</h3>
+            <p className="muted small">
+              {t('participants.rateProjectFor', {
+                colleague: ratingModal.colleagueName,
+                project: ratingModal.project.projectName,
+              })}
+            </p>
+            <form className="rating-form" onSubmit={handleSubmitProjectRating}>
+              <label>
+                <span>{dictionary.participants.rateProjectPunctuality}: {ratingModal.punctuality}</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={ratingModal.punctuality}
+                  onChange={(event) => updateProjectRatingScore('punctuality', Number(event.target.value))}
+                />
+              </label>
+              <label>
+                <span>{dictionary.participants.rateProjectTeamwork}: {ratingModal.teamwork}</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={ratingModal.teamwork}
+                  onChange={(event) => updateProjectRatingScore('teamwork', Number(event.target.value))}
+                />
+              </label>
+              <label>
+                <span>{dictionary.participants.rateProjectQuality}: {ratingModal.quality}</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={ratingModal.quality}
+                  onChange={(event) => updateProjectRatingScore('quality', Number(event.target.value))}
+                />
+              </label>
+              <label>
+                <span>{dictionary.participants.rateProjectComments}</span>
+                <textarea
+                  rows={3}
+                  placeholder={dictionary.participants.rateProjectCommentsPlaceholder}
+                  value={ratingModal.comments}
+                  onChange={(event) => updateProjectRatingComments(event.target.value)}
+                />
+              </label>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeProjectRatingModal}
+                  disabled={ratingModal.submitting}
+                >
+                  {dictionary.participants.rateProjectCancel}
+                </button>
+                <button type="submit" disabled={ratingModal.submitting}>
+                  {ratingModal.submitting
+                    ? dictionary.participants.rateProjectSubmitting
+                    : dictionary.participants.rateProjectSubmit}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

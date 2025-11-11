@@ -25,6 +25,7 @@ export default function App() {
           <NavLink to="/dashboard">{dictionary.app.nav.dashboard}</NavLink>
           <NavLink to="/projects">{dictionary.app.nav.createProject}</NavLink>
           <NavLink to="/participants">{dictionary.app.nav.participants}</NavLink>
+          <NavLink to="/history">{dictionary.app.nav.history}</NavLink>
           <NavLink to="/calendar">{dictionary.app.nav.calendar}</NavLink>
           <NavLink to="/invites/accept">{dictionary.app.nav.acceptInvite}</NavLink>
           <button type="button" className="theme-toggle" onClick={toggleTheme}>

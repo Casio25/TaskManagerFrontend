@@ -79,6 +79,39 @@ export type CreateProjectPayload = {
 export type ParticipantProject = { id: number; name: string };
 export type ParticipantTask = { id: number; title: string; projectId: number };
 
+export type PendingProjectRating = {
+  projectId: number;
+  projectName: string;
+  deadline?: string | null;
+  completedAt?: string | null;
+  color?: string | null;
+};
+
+export type ProjectRatingSummary = {
+  projectId: number;
+  projectName: string;
+  deadline?: string | null;
+  completedAt?: string | null;
+  color?: string | null;
+  rating: {
+    id: number;
+    punctuality: number;
+    teamwork: number;
+    quality: number;
+    comments?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    ratedBy?: { id: number; name: string | null; email: string } | null;
+  };
+};
+
+export type ProjectRatingAverages = {
+  count: number;
+  punctuality: number;
+  teamwork: number;
+  quality: number;
+};
+
 export type Colleague = {
   id: number;
   email: string;
@@ -91,6 +124,9 @@ export type Colleague = {
   completedProjects?: number;
   completedTasks?: number;
   performanceSummary?: TagPerformanceSummary[];
+  pendingProjectRatings?: PendingProjectRating[];
+  projectRatings?: ProjectRatingSummary[];
+  projectRatingAverages?: ProjectRatingAverages | null;
 };
 
 export type ColleagueListMember = {
@@ -262,6 +298,10 @@ export const api = {
     '/projects/mine',
     { headers: getHeaders(true) },
   ),
+  projectsArchived: () => http<ProjectOverview[]>(
+    '/projects/archived',
+    { headers: getHeaders(true) },
+  ),
 
   createProject: (data: CreateProjectPayload) =>
     http<ProjectOverview>('/projects', { method: 'POST', headers: getHeaders(true), body: JSON.stringify(data) }),
@@ -323,6 +363,12 @@ export const api = {
 
   rateTask: (taskId: number, data: { punctuality: number; teamwork: number; quality: number; comments?: string }) =>
     http<TaskRatingResponse>(`/tasks/${taskId}/rate`, {
+      method: 'POST',
+      headers: getHeaders(true),
+      body: JSON.stringify(data),
+    }),
+  rateProject: (projectId: number, data: { userId: number; punctuality: number; teamwork: number; quality: number; comments?: string }) =>
+    http<{ rating: TaskRatingResponse['rating'] }>(`/projects/${projectId}/rate`, {
       method: 'POST',
       headers: getHeaders(true),
       body: JSON.stringify(data),
@@ -394,3 +440,4 @@ export const api = {
       tasks.map(toProjectTaskDetail),
     ),
 };
+

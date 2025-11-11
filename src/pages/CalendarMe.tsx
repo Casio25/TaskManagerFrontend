@@ -14,6 +14,7 @@ import {
 } from 'date-fns';
 import { api, type CalendarTask, type ProjectOverview } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { ARCHIVE_STORAGE_KEY, loadArchivedProjectIds } from '../lib/archive';
 
 type ProjectSummary = Pick<ProjectOverview, 'id' | 'name' | 'deadline' | 'color'>;
 
@@ -43,32 +44,28 @@ function hexToRgb(hex: string) {
   };
 }
 
-function withAlpha(hex: string, alpha: number) {
+function lightenColor(hex: string, amount: number) {
   const { r, g, b } = hexToRgb(hex);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-function getContrastColor(hex: string) {
-  const { r, g, b } = hexToRgb(hex);
-  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-  return yiq >= 140 ? '#1f2937' : '#ffffff';
+  const clamp = (value: number) => Math.min(255, Math.max(0, Math.round(value)));
+  const mix = (channel: number) => clamp(channel + (255 - channel) * amount);
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
 }
 
 function getCalendarItemStyle(color?: string | null) {
   const normalized = normalizeColor(color);
   return {
-    backgroundColor: withAlpha(normalized, 0.2),
-    color: getContrastColor(normalized),
-    border: `1px solid ${withAlpha(normalized, 0.35)}` ,
+    backgroundColor: lightenColor(normalized, 0.75),
+    color: '#0f172a',
+    border: `1px solid ${lightenColor(normalized, 0.4)}`,
   } as const;
 }
 
 function getDeadlineItemStyle(color?: string | null) {
   const normalized = normalizeColor(color);
   return {
-    borderColor: withAlpha(normalized, 0.35),
-    backgroundColor: withAlpha(normalized, 0.12),
-    color: getContrastColor(normalized),
+    borderColor: lightenColor(normalized, 0.35),
+    backgroundColor: lightenColor(normalized, 0.85),
+    color: '#0f172a',
   } as const;
 }
 
@@ -112,14 +109,26 @@ function parseRangeParams(params?: { from?: string; to?: string }): RangeFilter 
 
 export default function CalendarMePage() {
   const { dictionary, t } = useI18n();
-  const [tasks, setTasks] = useState<CalendarTask[]>([]);
-  const [projects, setProjects] = useState<ProjectOverview[]>([]);
+  const [allTasks, setAllTasks] = useState<CalendarTask[]>([]);
+  const [allProjects, setAllProjects] = useState<ProjectOverview[]>([]);
+  const [archivedIds, setArchivedIds] = useState<number[]>(() => loadArchivedProjectIds());
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  const archivedSet = useMemo(() => new Set(archivedIds), [archivedIds]);
+  const tasks = useMemo(
+    () => allTasks.filter((task) => !archivedSet.has(task.project.id)),
+    [allTasks, archivedSet],
+  );
+  const projects = useMemo(
+    () => allProjects.filter((project) => !archivedSet.has(project.id)),
+    [allProjects, archivedSet],
+  );
 
   const initialViewDate = useMemo(() => {
     const dateParam = searchParams.get('date');
@@ -167,7 +176,7 @@ export default function CalendarMePage() {
       setRangeFilter(range);
       try {
         const [taskData, projectData] = await Promise.all([api.calendarMe(params), api.projectsMine()]);
-        setTasks(taskData);
+        setAllTasks(taskData);
         const dedup = new Map<number, ProjectOverview>();
         projectData.admin.forEach((project) => {
           dedup.set(project.id, project);
@@ -177,7 +186,7 @@ export default function CalendarMePage() {
             dedup.set(project.id, project);
           }
         });
-        setProjects(Array.from(dedup.values()));
+        setAllProjects(Array.from(dedup.values()));
       } catch (e: any) {
         setError(e.message || dictionary.calendar.loadFailed);
       } finally {
@@ -190,6 +199,16 @@ export default function CalendarMePage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === ARCHIVE_STORAGE_KEY) {
+        setArchivedIds(loadArchivedProjectIds());
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   const onFilter = (event: FormEvent) => {
     event.preventDefault();
@@ -297,6 +316,17 @@ export default function CalendarMePage() {
       .sort((a, b) => a.date!.getTime() - b.date!.getTime());
   }, [projects, rangeFilter]);
 
+  const selectedDayEvents = selectedDay ? eventsByDate[selectedDay] ?? [] : [];
+  const selectedTasks = selectedDayEvents.filter(
+    (event): event is { type: 'task'; task: CalendarTask } => event.type === 'task',
+  );
+  const selectedDateLabel = selectedDay ? format(new Date(selectedDay), 'MMMM d, yyyy') : '';
+
+  const handleSelectDay = (day: Date) => {
+    const key = format(day, 'yyyy-MM-dd');
+    setSelectedDay((prev) => (prev === key ? null : key));
+  };
+
   const weekdays = dictionary.calendar.weekdays;
 
   return (
@@ -355,7 +385,17 @@ export default function CalendarMePage() {
                   inMonth ? '' : 'outside',
                   today ? 'today' : '',
                   dayEvents.length ? 'has-tasks' : '',
+                  selectedDay === key ? 'selected' : '',
                 ].join(' ').trim()}
+                role="button"
+                tabIndex={0}
+                onClick={() => handleSelectDay(day)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    handleSelectDay(day);
+                  }
+                }}
               >
                 <div className="calendar-date">{format(day, 'd')}</div>
                 <div className="calendar-items">
@@ -376,6 +416,7 @@ export default function CalendarMePage() {
                         key={`project-${event.project.id}`}
                         className="calendar-item project"
                         to={`/dashboard?project=${event.project.id}`}
+                        onClick={(event) => event.stopPropagation()}
                         style={getDeadlineItemStyle(event.project.color)}
                       >
                         {t('calendar.calendarItem.project', { name: event.project.name })}
@@ -392,6 +433,43 @@ export default function CalendarMePage() {
             );
           })}
         </div>
+      </section>
+      <section className="calendar-details">
+        <div className="calendar-details-head">
+          <h3>
+            {selectedDay
+              ? t('calendar.detailsTitle', { date: selectedDateLabel })
+              : dictionary.calendar.detailsPlaceholder}
+          </h3>
+          {selectedDay && (
+            <button type="button" className="secondary" onClick={() => setSelectedDay(null)}>
+              {dictionary.calendar.detailsClear}
+            </button>
+          )}
+        </div>
+        {selectedDay ? (
+          selectedTasks.length === 0 ? (
+            <p className="muted small">{dictionary.calendar.detailsNoTasks}</p>
+          ) : (
+            <ul className="calendar-details-list">
+              {selectedTasks.map((entry) => (
+                <li key={entry.task.id}>
+                  <div>
+                    <div className="task-title">{entry.task.title}</div>
+                    <div className="muted small">{entry.task.project?.name ?? dictionary.calendar.table.project}</div>
+                  </div>
+                  <div className="muted small">
+                    {entry.task.assignedTo
+                      ? entry.task.assignedTo.name || entry.task.assignedTo.email
+                      : dictionary.dashboard.taskUnassigned}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : (
+          <p className="muted small">{dictionary.calendar.detailsInstructions}</p>
+        )}
       </section>
 
       {loading && <p>{dictionary.errors.loading}</p>}

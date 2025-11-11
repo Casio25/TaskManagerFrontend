@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import {
@@ -12,6 +12,7 @@ import {
   type ProjectStatus,
 } from '../lib/api';
 import { useI18n, type TranslationDictionary } from '../lib/i18n';
+import { loadArchivedProjectIds, saveArchivedProjectIds } from '../lib/archive';
 
 type Project = ProjectOverview;
 type ProjectTask = ProjectTaskSummary;
@@ -23,6 +24,7 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 type AssignmentControls = {
   projectId: number;
   lists: ColleagueList[];
+  lastSelectedListId?: number | null;
   listSelections: Record<number, number | ''>;
   userSelections: Record<number, number | ''>;
   assigning: Record<number, boolean>;
@@ -37,6 +39,7 @@ type TasksListProps = {
   dictionary: TranslationDictionary;
   assignment?: AssignmentControls;
   renderActions?: (task: ProjectTask) => ReactNode;
+  taskStatusFilter: string;
 };
 
 function computeDeadlineInfo(deadline: string | null | undefined, t: Translate): DeadlineInfo {
@@ -59,10 +62,22 @@ function formatDateTime(value: string | null | undefined, t: Translate) {
   return Number.isNaN(date.getTime()) ? t('deadlines.invalid') : date.toLocaleString();
 }
 
-function TasksList({ tasks, t, dictionary, assignment, renderActions }: TasksListProps) {
+function TasksList({ tasks, t, dictionary, assignment, renderActions, taskStatusFilter }: TasksListProps) {
+  const availableLists = assignment
+    ? assignment.lists.filter((list) => list.members.some((member) => member.colleague?.contact))
+    : [];
+  const lastSelectedListId = assignment?.lastSelectedListId ?? null;
+  const lastSelectedList =
+    lastSelectedListId !== null
+      ? availableLists.find((list) => list.id === lastSelectedListId) ?? undefined
+      : undefined;
+  const orderedLists = lastSelectedList
+    ? [lastSelectedList, ...availableLists.filter((list) => list.id !== lastSelectedList.id)]
+    : availableLists;
+
   const getMembers = (listId: number | '') => {
     if (!assignment || typeof listId !== 'number') return [];
-    const list = assignment.lists.find((item) => item.id === listId);
+    const list = availableLists.find((item) => item.id === listId);
     if (!list) return [];
     return list.members.filter((member) => member.colleague?.contact);
   };
@@ -77,9 +92,28 @@ function TasksList({ tasks, t, dictionary, assignment, renderActions }: TasksLis
             // @ts-expect-error runtime lookup for status dictionary
             dictionary.dashboard.status?.[statusKey] ?? task.status;
           const badge = computeDeadlineInfo(task.deadline, t);
-          const listId = assignment?.listSelections[task.id] ?? '';
+          const rawListId = assignment?.listSelections[task.id] ?? '';
+          const listId =
+            typeof rawListId === 'number' && orderedLists.some((list) => list.id === rawListId)
+              ? rawListId
+              : '';
           const memberOptions = getMembers(listId);
-          const selectedUser = assignment?.userSelections[task.id] ?? '';
+          const rawSelectedUser = assignment?.userSelections[task.id] ?? '';
+          const selectedUser =
+            typeof rawSelectedUser === 'number' &&
+            memberOptions.some((member) => member.colleagueId === rawSelectedUser)
+              ? rawSelectedUser
+              : '';
+          const listOptions = orderedLists.map((list, index) => {
+            const label =
+              lastSelectedList && index === 0
+                ? t('dashboard.lastSelectedTeam', { name: list.name })
+                : t('dashboard.teamOption', {
+                    index: lastSelectedList ? index : index + 1,
+                    name: list.name,
+                  });
+            return { list, label };
+          });
           return (
             <li key={task.id}>
               <div className="task-head">
@@ -133,10 +167,11 @@ function TasksList({ tasks, t, dictionary, assignment, renderActions }: TasksLis
                     aria-label={dictionary.dashboard.selectList}
                     value={listId}
                     onChange={(event) => assignment.onListChange(task.id, event.target.value ? Number(event.target.value) : '')}
+                    disabled={assignment.assigning[task.id] || orderedLists.length === 0}
                   >
                     <option value="">{dictionary.dashboard.selectList}</option>
-                    {assignment.lists.map((list) => (
-                      <option key={list.id} value={list.id}>{list.name}</option>
+                    {listOptions.map(({ list, label }) => (
+                      <option key={list.id} value={list.id}>{label}</option>
                     ))}
                   </select>
                   <select
@@ -163,7 +198,10 @@ function TasksList({ tasks, t, dictionary, assignment, renderActions }: TasksLis
                   >
                     {assignment.assigning[task.id] ? dictionary.dashboard.deleteProgress : dictionary.dashboard.assignButton}
                   </button>
-                  {typeof listId === 'number' && memberOptions.length === 0 && (
+                  {orderedLists.length === 0 && (
+                    <span className="muted small">{dictionary.dashboard.noAssignableUsers}</span>
+                  )}
+                  {typeof listId === 'number' && memberOptions.length === 0 && orderedLists.length > 0 && (
                     <span className="muted small">{dictionary.dashboard.noAssignableUsers}</span>
                   )}
                 </div>
@@ -172,6 +210,9 @@ function TasksList({ tasks, t, dictionary, assignment, renderActions }: TasksLis
           );
         })}
       </ul>
+      {tasks.length === 0 && taskStatusFilter !== 'all' && (
+        <p className="muted small">{dictionary.dashboard.noTasksForStatus}</p>
+      )}
     </details>
   );
 }
@@ -191,11 +232,16 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string>('');
+  const [projectStatusFilter, setProjectStatusFilter] = useState<string>('all');
+  const [taskStatusFilter, setTaskStatusFilter] = useState<string>('all');
+  const [archivedProjectIds, setArchivedProjectIds] = useState<number[]>(() => loadArchivedProjectIds());
   const [deleting, setDeleting] = useState<number | null>(null);
   const [confirming, setConfirming] = useState<number | null>(null);
   const [taskListSelections, setTaskListSelections] = useState<Record<number, number | ''>>({});
   const [taskUserSelections, setTaskUserSelections] = useState<Record<number, number | ''>>({});
   const [assigningFromList, setAssigningFromList] = useState<Record<number, boolean>>({});
+  const [lastListByProject, setLastListByProject] = useState<Record<number, number | null>>({});
   const [taskUpdating, setTaskUpdating] = useState<Record<number, boolean>>({});
   const [projectStatusUpdating, setProjectStatusUpdating] = useState<Record<number, boolean>>({});
 
@@ -204,6 +250,59 @@ export default function DashboardPage() {
     const timer = window.setTimeout(() => setNotice(null), 3000);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    saveArchivedProjectIds(archivedProjectIds);
+  }, [archivedProjectIds]);
+
+  const archiveProject = useCallback(
+    (projectId: number) => {
+      setArchivedProjectIds((prev) => {
+        if (prev.includes(projectId)) return prev;
+        return [...prev, projectId];
+      });
+      setLastListByProject((prev) => {
+        if (!(projectId in prev)) return prev;
+        const { [projectId]: _removed, ...rest } = prev;
+        return rest;
+      });
+      const sourceProject = admin.find((item) => item.id === projectId);
+      if (sourceProject?.tasks.length) {
+        setTaskListSelections((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          sourceProject.tasks.forEach((task) => {
+            if (next[task.id] !== undefined) {
+              delete next[task.id];
+              changed = true;
+            }
+          });
+          return changed ? next : prev;
+        });
+        setTaskUserSelections((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          sourceProject.tasks.forEach((task) => {
+            if (next[task.id] !== undefined) {
+              delete next[task.id];
+              changed = true;
+            }
+          });
+          return changed ? next : prev;
+        });
+      }
+      setNotice(dictionary.dashboard.archiveSuccess);
+    },
+    [admin, dictionary.dashboard.archiveSuccess],
+  );
+
+  const restoreProject = useCallback(
+    (projectId: number) => {
+      setArchivedProjectIds((prev) => prev.filter((id) => id !== projectId));
+      setNotice(dictionary.dashboard.restoreSuccess);
+    },
+    [dictionary.dashboard.restoreSuccess],
+  );
 
   useEffect(() => {
     const param = searchParams.get('project');
@@ -235,6 +334,58 @@ export default function DashboardPage() {
       setAdmin(projectData.admin);
       setMember(projectData.member);
       setLists(listData);
+      setArchivedProjectIds((prev) => {
+        const validIds = new Set(
+          [...projectData.admin, ...projectData.member].map((project) => project.id),
+        );
+        const hasInvalid = prev.some((id) => !validIds.has(id));
+        if (!hasInvalid) return prev;
+        return prev.filter((id) => validIds.has(id));
+      });
+      setLastListByProject((prev) => {
+        if (Object.keys(prev).length === 0) return prev;
+        const validListIds = new Set(listData.map((list) => list.id));
+        const next: Record<number, number | null> = {};
+        for (const [projectIdStr, listId] of Object.entries(prev)) {
+          const projectId = Number(projectIdStr);
+          next[projectId] = listId && validListIds.has(listId) ? listId : null;
+        }
+        return next;
+      });
+      const listsWithMembersIds = new Set(
+        listData
+          .filter((list) => list.members.some((member) => member.colleague?.contact))
+          .map((list) => list.id),
+      );
+      const invalidTaskIds: number[] = [];
+      setTaskListSelections((prev) => {
+        let changed = false;
+        const next: Record<number, number | ''> = {};
+        for (const [taskIdStr, value] of Object.entries(prev)) {
+          const taskId = Number(taskIdStr);
+          if (typeof value === 'number' && !listsWithMembersIds.has(value)) {
+            next[taskId] = '';
+            invalidTaskIds.push(taskId);
+            changed = true;
+          } else {
+            next[taskId] = value;
+          }
+        }
+        return changed ? next : prev;
+      });
+      if (invalidTaskIds.length > 0) {
+        setTaskUserSelections((prev) => {
+          let changed = false;
+          const next = { ...prev };
+          for (const taskId of invalidTaskIds) {
+            if (next[taskId]) {
+              next[taskId] = '';
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      }
     } catch (e: any) {
       console.error('[Dashboard] failed to load data', e);
       setError(e.message || dictionary.dashboard.loadFailed);
@@ -319,6 +470,7 @@ export default function DashboardPage() {
       }
       updateTaskAssignment(projectId, taskId, assignedUser);
       await loadDashboardData();
+      setLastListByProject((prev) => ({ ...prev, [projectId]: listId }));
       setTaskListSelections((prev) => ({ ...prev, [taskId]: '' }));
       setTaskUserSelections((prev) => ({ ...prev, [taskId]: '' }));
       setNotice(t('dashboard.assignSuccess'));
@@ -502,6 +654,7 @@ export default function DashboardPage() {
         const renderTaskActionsForProject = showDelete
           ? (task: ProjectTaskSummary) => renderAdminTaskActions(project.id, task)
           : (task: ProjectTaskSummary) => renderMemberTaskActions(project.id, task);
+        const listsWithMembers = lists.filter((list) => list.members.some((member) => member.colleague?.contact));
 
         return (
           <li key={project.id} id={`project-${project.id}`} className={`project-item${project.id === focusedProjectId ? " project-focused" : ""}`}>
@@ -563,6 +716,29 @@ export default function DashboardPage() {
             </div>
             {showDelete && (
               <div className="project-actions">
+                {archivedProjectIds.includes(project.id) ? (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => restoreProject(project.id)}
+                    title={dictionary.dashboard.restoreProject}
+                    aria-label={dictionary.dashboard.restoreProject}
+                  >
+                    {dictionary.dashboard.restoreProject}
+                  </button>
+                ) : (
+                  project.status === 'COMPLETED' && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => archiveProject(project.id)}
+                      title={dictionary.dashboard.archiveProject}
+                      aria-label={dictionary.dashboard.archiveProject}
+                    >
+                      {dictionary.dashboard.archiveProject}
+                    </button>
+                  )
+                )}
                 <button
                   type="button"
                   className="icon-button danger"
@@ -602,20 +778,22 @@ export default function DashboardPage() {
               tasks={project.tasks}
               t={t}
               dictionary={dictionary}
+              taskStatusFilter={taskStatusFilter}
               assignment={
-                showDelete
-                  ? {
-                      projectId: project.id,
-                      lists,
-                      listSelections: taskListSelections,
-                      userSelections: taskUserSelections,
-                      assigning: assigningFromList,
-                      onListChange: handleListChange,
-                      onUserChange: handleUserChange,
-                      onAssign: (taskId) => handleAssignFromList(project.id, taskId),
-                    }
-                  : undefined
-              }
+              showDelete && !archivedProjectIds.includes(project.id)
+                ? {
+                    projectId: project.id,
+                    lists: listsWithMembers,
+                    lastSelectedListId: lastListByProject[project.id] ?? null,
+                    listSelections: taskListSelections,
+                    userSelections: taskUserSelections,
+                    assigning: assigningFromList,
+                    onListChange: handleListChange,
+                    onUserChange: handleUserChange,
+                    onAssign: (taskId) => handleAssignFromList(project.id, taskId),
+                  }
+                : undefined
+            }
               renderActions={renderTaskActionsForProject}
             />
           </li>
@@ -623,6 +801,113 @@ export default function DashboardPage() {
       })}
     </ul>
   );
+
+  const normalizeTag = (value: string) => value.trim().toLowerCase();
+
+  const availableTags = useMemo(() => {
+    const map = new Map<string, string>();
+    [...admin, ...member].forEach((project) => {
+      project.tasks.forEach((task) => {
+        task.tags.forEach((tag) => {
+          const normalized = normalizeTag(tag);
+          if (!normalized) return;
+          if (!map.has(normalized)) {
+            map.set(normalized, tag);
+          }
+        });
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
+  }, [admin, member]);
+
+  const filterProjectsByTag = useCallback(
+    (projects: Project[]): Project[] => {
+      if (!tagFilter) return projects;
+      const normalized = normalizeTag(tagFilter);
+      return projects
+        .map((project) => {
+          const filteredTasks = project.tasks.filter((task) =>
+            task.tags.some((tag) => normalizeTag(tag) === normalized),
+          );
+          if (filteredTasks.length === 0) return null;
+          return { ...project, tasks: filteredTasks } as Project;
+        })
+        .filter((project): project is Project => project !== null);
+    },
+    [tagFilter],
+  );
+
+  const applyProjectFilters = useCallback(
+    (projects: Project[]): Project[] => {
+      const tagged = filterProjectsByTag(projects);
+      const now = Date.now();
+      return tagged
+        .map((project) => {
+          const isArchived = archivedProjectIds.includes(project.id);
+          const statusKey = (project.status || '').toString().toUpperCase();
+          const isCompleted = statusKey === 'COMPLETED';
+          const deadlineTime = project.deadline ? new Date(project.deadline).getTime() : NaN;
+          const hasValidDeadline = Number.isFinite(deadlineTime);
+          const isOverdue = !isCompleted && hasValidDeadline && deadlineTime < now;
+
+          let include = false;
+          switch (projectStatusFilter) {
+            case 'archived':
+              include = isArchived;
+              break;
+            case 'completed':
+              include = !isArchived && isCompleted;
+              break;
+            case 'overdue':
+              include = !isArchived && isOverdue;
+              break;
+            case 'active':
+              include = !isArchived && !isCompleted && !isOverdue;
+              break;
+            default:
+              include = !isArchived;
+          }
+
+          if (!include) return null;
+
+          const filteredTasks = project.tasks.filter((task) => {
+            if (taskStatusFilter === 'all') return true;
+            if (taskStatusFilter === 'overdue') {
+              if ((task.status || '').toString().toUpperCase() === 'COMPLETED') return false;
+              const taskDeadline = task.deadline ? new Date(task.deadline).getTime() : NaN;
+              return Number.isFinite(taskDeadline) && taskDeadline < now;
+            }
+            return (task.status || '').toString().toUpperCase() === taskStatusFilter;
+          });
+
+          return { ...project, tasks: filteredTasks };
+        })
+        .filter((project): project is Project => project !== null);
+    },
+    [filterProjectsByTag, archivedProjectIds, projectStatusFilter, taskStatusFilter],
+  );
+
+  const filteredAdminProjects = useMemo(
+    () => applyProjectFilters(admin),
+    [admin, applyProjectFilters],
+  );
+
+  const filteredMemberProjects = useMemo(
+    () => applyProjectFilters(member),
+    [member, applyProjectFilters],
+  );
+
+  const tagFilterActive = Boolean(tagFilter);
+  const projectStatusFilterActive = projectStatusFilter !== 'all';
+  const taskStatusFilterActive = taskStatusFilter !== 'all';
+
+  const getEmptyProjectsMessage = (isAdminView: boolean) => {
+    if (projectStatusFilter === 'archived') return dictionary.dashboard.noArchivedProjects;
+    if (projectStatusFilterActive) return dictionary.dashboard.noProjectsForStatus;
+    if (taskStatusFilterActive) return dictionary.dashboard.noProjectsForTaskStatus;
+    if (tagFilterActive) return t('dashboard.noProjectsForTag', { tag: tagFilter });
+    return isAdminView ? dictionary.dashboard.noAdminProjects : dictionary.dashboard.noMemberProjects;
+  };
 
   return (
     <div className="container">
@@ -637,24 +922,92 @@ export default function DashboardPage() {
       {error && !loading && <p className="error">{error}</p>}
       {loading && <p>{dictionary.errors.loading}</p>}
       {!loading && !error && (
-        <div className="grid">
-          <section>
-            <h3>{dictionary.dashboard.adminProjects}</h3>
-            {admin.length === 0 ? (
-              <p className="muted">{dictionary.dashboard.noAdminProjects}</p>
-            ) : (
-              renderProjects(admin, true)
-            )}
+        <>
+          {availableTags.length > 0 && (
+            <section className="filter tag-filter">
+              <div className="filter-field">
+                <label htmlFor="tag-filter">{dictionary.dashboard.tagFilterLabel}</label>
+                <select
+                  id="tag-filter"
+                  value={tagFilter}
+                  onChange={(event) => setTagFilter(event.target.value)}
+                >
+                  <option value="">{dictionary.dashboard.tagFilterAll}</option>
+                  {availableTags.map((tag) => (
+                    <option key={tag} value={tag}>
+                      {tag}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {tagFilterActive && (
+                <div className="filter-actions">
+                  <span className="muted small">
+                    {t('dashboard.tagFilterActive', { tag: tagFilter })}
+                  </span>
+                  <button type="button" className="secondary" onClick={() => setTagFilter('')}>
+                    {dictionary.dashboard.tagFilterClear}
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
+          <section className="filter status-filter">
+            <div className="filter-field">
+              <label htmlFor="project-status-filter">{dictionary.dashboard.projectStatusFilterLabel}</label>
+              <select
+                id="project-status-filter"
+                value={projectStatusFilter}
+                onChange={(event) => setProjectStatusFilter(event.target.value)}
+              >
+                <option value="all">{dictionary.dashboard.projectStatusAll}</option>
+                <option value="active">{dictionary.dashboard.projectStatusActive}</option>
+                <option value="completed">{dictionary.dashboard.projectStatusCompleted}</option>
+                <option value="overdue">{dictionary.dashboard.projectStatusOverdue}</option>
+                <option value="archived">{dictionary.dashboard.projectStatusArchived}</option>
+              </select>
+            </div>
+            <div className="filter-field">
+              <label htmlFor="task-status-filter">{dictionary.dashboard.taskStatusFilterLabel}</label>
+              <select
+                id="task-status-filter"
+                value={taskStatusFilter}
+                onChange={(event) => setTaskStatusFilter(event.target.value)}
+              >
+                <option value="all">{dictionary.dashboard.taskStatusAll}</option>
+                <option value="NEW">{dictionary.dashboard.taskStatusNew}</option>
+                <option value="IN_PROGRESS">{dictionary.dashboard.taskStatusInProgress}</option>
+                <option value="SUBMITTED">{dictionary.dashboard.taskStatusSubmitted}</option>
+                <option value="HELP_REQUESTED">{dictionary.dashboard.taskStatusHelp}</option>
+                <option value="DECLINED">{dictionary.dashboard.taskStatusDeclined}</option>
+                <option value="COMPLETED">{dictionary.dashboard.taskStatusCompleted}</option>
+                <option value="overdue">{dictionary.dashboard.taskStatusOverdue}</option>
+              </select>
+            </div>
           </section>
-          <section>
-            <h3>{dictionary.dashboard.memberProjects}</h3>
-            {member.length === 0 ? (
-              <p className="muted">{dictionary.dashboard.noMemberProjects}</p>
-            ) : (
-              renderProjects(member)
-            )}
-          </section>
-        </div>
+          <div className="grid">
+            <section>
+              <h3>{dictionary.dashboard.adminProjects}</h3>
+              {filteredAdminProjects.length === 0 ? (
+                <p className="muted">
+                  {getEmptyProjectsMessage(true)}
+                </p>
+              ) : (
+                renderProjects(filteredAdminProjects, true)
+              )}
+            </section>
+            <section>
+              <h3>{dictionary.dashboard.memberProjects}</h3>
+              {filteredMemberProjects.length === 0 ? (
+                <p className="muted">
+                  {getEmptyProjectsMessage(false)}
+                </p>
+              ) : (
+                renderProjects(filteredMemberProjects)
+              )}
+            </section>
+          </div>
+        </>
       )}
     </div>
   );

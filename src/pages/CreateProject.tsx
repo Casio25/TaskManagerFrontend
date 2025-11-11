@@ -49,12 +49,12 @@ export default function CreateProjectPage() {
       setTasksInput((prev) => prev.map((task) => ({ ...task, deadline: '' })));
       return;
     }
-    const projectDeadline = new Date(deadline);
+    const projectDeadline = new Date(`${deadline}T00:00:00`);
     if (Number.isNaN(projectDeadline.getTime())) return;
     setTasksInput((prev) =>
       prev.map((task) => {
         if (!task.deadline) return task;
-        const taskDate = new Date(task.deadline);
+        const taskDate = new Date(`${task.deadline}T00:00:00`);
         if (Number.isNaN(taskDate.getTime()) || taskDate.getTime() > projectDeadline.getTime()) {
           return { ...task, deadline: '' };
         }
@@ -154,7 +154,7 @@ export default function CreateProjectPage() {
       setTaskError(t('projects.errors.chooseDeadline'));
       return;
     }
-    const projectDeadline = new Date(deadline);
+    const projectDeadline = new Date(`${deadline}T00:00:00`);
     if (Number.isNaN(projectDeadline.getTime())) {
       setTaskError(t('projects.errors.invalidDeadline'));
       return;
@@ -172,7 +172,7 @@ export default function CreateProjectPage() {
         if (!task.deadline) {
           throw new Error(t('projects.errors.setTaskDeadline', { index: indexLabel }));
         }
-        const taskDeadline = new Date(task.deadline);
+        const taskDeadline = new Date(`${task.deadline}T00:00:00`);
         if (Number.isNaN(taskDeadline.getTime())) {
           throw new Error(t('projects.errors.invalidTaskDeadline', { index: indexLabel }));
         }
@@ -212,11 +212,18 @@ export default function CreateProjectPage() {
     }
   };
 
-  const projectDeadlineDate = deadline ? new Date(deadline) : null;
+  const projectDeadlineDate = deadline ? new Date(`${deadline}T00:00:00`) : null;
   const taskDeadlineDisabled = !deadline || Number.isNaN(projectDeadlineDate?.getTime() ?? NaN);
-  const taskDeadlineMax = !taskDeadlineDisabled && projectDeadlineDate ? deadline : undefined;
+  const taskDeadlineMax = !taskDeadlineDisabled && deadline ? deadline : undefined;
 
-  const badgeTranslator = useMemo(() => (deadlineValue: string | undefined) => computeBadge(deadlineValue, t), [t]);
+  const badgeTranslator = useMemo(
+    () => (deadlineValue: string | undefined) => {
+      if (!deadlineValue) return computeBadge(undefined, t);
+      const normalized = deadlineValue.includes('T') ? deadlineValue : `${deadlineValue}T00:00:00`;
+      return computeBadge(normalized, t);
+    },
+    [t],
+  );
 
   return (
     <div className="container">
@@ -228,6 +235,8 @@ export default function CreateProjectPage() {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onInput={(event) => event.currentTarget.setCustomValidity('')}
+              onInvalid={(event) => event.currentTarget.setCustomValidity(dictionary.projects.errors.nameRequired)}
               placeholder={dictionary.projects.name}
               required
             />
@@ -243,10 +252,11 @@ export default function CreateProjectPage() {
           <label>
             {dictionary.projects.projectDeadline}
             <input
-              type="datetime-local"
+              type="date"
               value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-              step={1800}
+              onChange={(event) => setDeadline(event.target.value)}
+              onInput={(event) => event.currentTarget.setCustomValidity('')}
+              onInvalid={(event) => event.currentTarget.setCustomValidity(dictionary.projects.errors.deadlineRequired)}
               required
             />
           </label>
@@ -299,6 +309,8 @@ export default function CreateProjectPage() {
                     <input
                       value={task.title}
                       onChange={(e) => updateTaskField(index, 'title', e.target.value)}
+                      onInput={(event) => event.currentTarget.setCustomValidity('')}
+                      onInvalid={(event) => event.currentTarget.setCustomValidity(dictionary.projects.errors.taskTitleRequired)}
                       placeholder={dictionary.projects.taskTitle}
                       required
                     />
@@ -314,16 +326,17 @@ export default function CreateProjectPage() {
                   <label>
                     {dictionary.projects.taskDeadline}
                     <input
-                      type="datetime-local"
+                      type="date"
                       value={task.deadline}
-                      onChange={(e) => updateTaskField(index, 'deadline', e.target.value)}
+                      onChange={(event) => updateTaskField(index, 'deadline', event.target.value)}
+                      onInput={(event) => event.currentTarget.setCustomValidity('')}
+                      onInvalid={(event) => event.currentTarget.setCustomValidity(dictionary.projects.errors.taskDeadlineRequired)}
                       disabled={taskDeadlineDisabled}
                       max={taskDeadlineMax}
-                      step={1800}
                       required
                     />
-                    <span className={`badge badge-${badge.tone}`} style={{ marginTop: 6 }}>{badge.label}</span>
                   </label>
+                  <span className={`badge badge-${badge.tone}`} style={{ marginTop: 6 }}>{badge.label}</span>
                   <div>
                     <div className="muted small">{dictionary.projects.selectedTags}</div>
                     <div className="selected-tags">
