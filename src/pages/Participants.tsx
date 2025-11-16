@@ -1,5 +1,14 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { api, type Colleague, type ColleagueList, type TagPerformanceSummary, type PendingProjectRating, type ProjectRatingSummary, type ProjectRatingAverages } from '../lib/api';
+import {
+  api,
+  type Colleague,
+  type ColleagueList,
+  type TagPerformanceSummary,
+  type PendingProjectRating,
+  type ProjectRatingSummary,
+  type ProjectRatingAverages,
+  type TeamAnalyticsResponse,
+} from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
 type RatingModalState = {
@@ -12,6 +21,18 @@ type RatingModalState = {
   quality: number;
   comments: string;
   submitting: boolean;
+};
+
+type TeamAnalyticsPanelState = {
+  listId: number;
+  listName: string;
+  memberCount: number;
+  connectedMembers: number;
+  data: TeamAnalyticsResponse | null;
+  loading: boolean;
+  error: string | null;
+  filters: { from: string; to: string };
+  selectedTagId: number | null;
 };
 
 const sanitizeColleague = (colleague: Colleague): Colleague => colleague;
@@ -35,6 +56,7 @@ export default function ParticipantsPage() {
   const [creatingList, setCreatingList] = useState(false);
   const [deletingList, setDeletingList] = useState<Record<number, boolean>>({});
   const [removingFromList, setRemovingFromList] = useState<Record<string, boolean>>({});
+  const [teamAnalyticsPanel, setTeamAnalyticsPanel] = useState<TeamAnalyticsPanelState | null>(null);
   const formatDateTime = (value: string | null | undefined) => {
     if (!value) return '';
     const date = new Date(value);
@@ -42,6 +64,7 @@ export default function ParticipantsPage() {
   };
   const formatAverage = (value: number) => value.toFixed(1);
   const formatScore = (value?: number | null) => (typeof value === 'number' ? value.toFixed(1) : '—');
+  const formatPercent = (value?: number | null) => (typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : '—');
 
   const ICON_SPINNER = '\u23F3';
   const ICON_TRASH = '\u{1F5D1}';
@@ -94,6 +117,29 @@ export default function ParticipantsPage() {
   const listSelectionSummary = selectedListCount > 0
     ? t('participants.listSelectionCount', { count: selectedListCount })
     : dictionary.participants.addListsHint;
+  const colleagueByUserId = useMemo(() => {
+    const map = new Map<number, Colleague>();
+    colleagues.forEach((colleague) => {
+      if (colleague.contact?.id) {
+        map.set(colleague.contact.id, colleague);
+      }
+    });
+    return map;
+  }, [colleagues]);
+  const teamTagOptions = useMemo(() => {
+    if (!teamAnalyticsPanel) return [];
+    const tagMap = new Map<number, string>();
+    colleagues.forEach((colleague) => {
+      const inList = colleague.lists.some((list) => list.id === teamAnalyticsPanel.listId);
+      if (!inList) return;
+      (colleague.performanceSummary ?? []).forEach((summary) => {
+        tagMap.set(summary.tag.id, summary.tag.name);
+      });
+    });
+    return Array.from(tagMap.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [colleagues, teamAnalyticsPanel?.listId]);
 
   const openProjectRatingModal = (colleague: Colleague, project: PendingProjectRating) => {
     if (!colleague.contact?.id) return;
@@ -274,6 +320,86 @@ export default function ParticipantsPage() {
     }
   };
 
+  const fetchTeamAnalytics = async (listId: number, filters?: { from?: string; to?: string }) => {
+    const normalizedFilters: { from?: string; to?: string } = {};
+    if (filters?.from) normalizedFilters.from = filters.from;
+    if (filters?.to) normalizedFilters.to = filters.to;
+    setTeamAnalyticsPanel((prev) =>
+      prev && prev.listId === listId ? { ...prev, loading: true, error: null } : prev,
+    );
+    try {
+      const response = await api.teamAnalytics(listId, normalizedFilters);
+      setTeamAnalyticsPanel((prev) =>
+        prev && prev.listId === listId
+          ? {
+              ...prev,
+              data: response,
+              loading: false,
+              listName: response.list.name,
+              memberCount: response.list.members,
+              connectedMembers: response.list.connectedMembers,
+            }
+          : prev,
+      );
+    } catch (err: any) {
+      setTeamAnalyticsPanel((prev) =>
+        prev && prev.listId === listId
+          ? {
+              ...prev,
+              loading: false,
+              error: err.message || dictionary.participants.errors.analyticsFailed,
+            }
+          : prev,
+      );
+    }
+  };
+
+  const openTeamAnalyticsPanel = (list: ColleagueList) => {
+    const connectedCount = list.members.filter((member) => Boolean(member.colleague?.contact)).length;
+    setTeamAnalyticsPanel({
+      listId: list.id,
+      listName: list.name,
+      memberCount: list.members.length,
+      connectedMembers: connectedCount,
+      data: null,
+      loading: true,
+      error: null,
+      filters: { from: '', to: '' },
+      selectedTagId: null,
+    });
+    void fetchTeamAnalytics(list.id);
+  };
+
+  const closeTeamAnalyticsPanel = () => {
+    setTeamAnalyticsPanel(null);
+  };
+
+  const updateTeamAnalyticsFilter = (field: 'from' | 'to', value: string) => {
+    setTeamAnalyticsPanel((prev) =>
+      prev ? { ...prev, filters: { ...prev.filters, [field]: value } } : prev,
+    );
+  };
+
+  const applyTeamAnalyticsFilters = () => {
+    if (!teamAnalyticsPanel) return;
+    void fetchTeamAnalytics(teamAnalyticsPanel.listId, {
+      from: teamAnalyticsPanel.filters.from || undefined,
+      to: teamAnalyticsPanel.filters.to || undefined,
+    });
+  };
+
+  const clearTeamAnalyticsFilters = () => {
+    if (!teamAnalyticsPanel) return;
+    setTeamAnalyticsPanel((prev) => (prev ? { ...prev, filters: { from: '', to: '' } } : prev));
+    void fetchTeamAnalytics(teamAnalyticsPanel.listId);
+  };
+
+  const updateTeamAnalyticsTagFilter = (value: string) => {
+    setTeamAnalyticsPanel((prev) =>
+      prev ? { ...prev, selectedTagId: value ? Number(value) : null } : prev,
+    );
+  };
+
   const handleDeleteList = async (list: ColleagueList) => {
     if (!window.confirm(t('participants.deleteListConfirm', { name: list.name }))) return;
     setError(null);
@@ -305,10 +431,10 @@ export default function ParticipantsPage() {
     }
   };
 
-const renderPerformanceSummary = (summary?: TagPerformanceSummary[]) => {
-  if (!summary || summary.length === 0) {
-    return <p className="muted small">{dictionary.participants.performanceEmpty}</p>;
-  }
+  const renderPerformanceSummary = (summary?: TagPerformanceSummary[]) => {
+    if (!summary || summary.length === 0) {
+      return <p className="muted small">{dictionary.participants.performanceEmpty}</p>;
+    }
 
     return (
       <ul className="performance-list">
@@ -343,6 +469,266 @@ const renderPerformanceSummary = (summary?: TagPerformanceSummary[]) => {
           );
         })}
       </ul>
+    );
+  };
+
+  const renderTeamAnalyticsModal = () => {
+    if (!teamAnalyticsPanel) return null;
+    const data = teamAnalyticsPanel.data;
+    const memberCount = data?.list.members ?? teamAnalyticsPanel.memberCount;
+    const connectedMembers = data?.list.connectedMembers ?? teamAnalyticsPanel.connectedMembers;
+    const overdue = data?.taskOverdue;
+    const hasDeadlines = Boolean(overdue && overdue.withDeadline > 0);
+    const hasFiltersApplied = Boolean(teamAnalyticsPanel.filters.from || teamAnalyticsPanel.filters.to);
+    const topPerformers = data?.topPerformers ?? [];
+    const sharePercent = hasDeadlines && overdue ? formatPercent(overdue.share) : null;
+    const tagOptions = teamTagOptions;
+    const filteredTopPerformers =
+      teamAnalyticsPanel.selectedTagId && topPerformers.length
+        ? topPerformers.filter((performer) => {
+            const colleague = colleagueByUserId.get(performer.userId);
+            if (!colleague?.performanceSummary) return false;
+            return colleague.performanceSummary.some(
+              (summary) => summary.tag.id === teamAnalyticsPanel.selectedTagId,
+            );
+          })
+        : topPerformers;
+    const hasTopPerformers = filteredTopPerformers.length > 0;
+
+    return (
+      <div className="modal-overlay">
+        <div className="analytics-modal" role="dialog" aria-modal="true" aria-labelledby="team-analytics-title">
+          <div className="analytics-modal-head">
+            <div>
+              <h3 id="team-analytics-title">
+                {t('participants.teamAnalyticsTitle', { name: data?.list.name ?? teamAnalyticsPanel.listName })}
+              </h3>
+              <p className="muted small">{dictionary.participants.teamAnalyticsDescription}</p>
+            </div>
+            <button type="button" className="secondary" onClick={closeTeamAnalyticsPanel}>
+              {dictionary.participants.teamAnalyticsClose}
+            </button>
+          </div>
+
+          <form
+            className="analytics-filters"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyTeamAnalyticsFilters();
+            }}
+          >
+            <label>
+              <span>{dictionary.participants.teamAnalyticsFilterFrom}</span>
+              <input
+                type="date"
+                value={teamAnalyticsPanel.filters.from}
+                onChange={(event) => updateTeamAnalyticsFilter('from', event.target.value)}
+              />
+            </label>
+            <label>
+              <span>{dictionary.participants.teamAnalyticsFilterTo}</span>
+              <input
+                type="date"
+                value={teamAnalyticsPanel.filters.to}
+                onChange={(event) => updateTeamAnalyticsFilter('to', event.target.value)}
+              />
+            </label>
+            <div className="analytics-filter-actions">
+              <button type="submit" disabled={teamAnalyticsPanel.loading}>
+                {dictionary.participants.teamAnalyticsApply}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={clearTeamAnalyticsFilters}
+                disabled={teamAnalyticsPanel.loading || !hasFiltersApplied}
+              >
+                {dictionary.participants.teamAnalyticsClear}
+              </button>
+            </div>
+          </form>
+          <p className="muted small">{dictionary.participants.teamAnalyticsFiltersHint}</p>
+
+          {tagOptions.length > 0 && (
+            <div className="analytics-tag-filter">
+              <label htmlFor="analytics-tag-select">{dictionary.participants.teamAnalyticsTagLabel}</label>
+              <select
+                id="analytics-tag-select"
+                value={teamAnalyticsPanel.selectedTagId ?? ''}
+                onChange={(event) => updateTeamAnalyticsTagFilter(event.target.value)}
+              >
+                <option value="">{dictionary.participants.teamAnalyticsTagAll}</option>
+                {tagOptions.map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="analytics-meta">
+            <div className="analytics-meta-item">
+              <span className="muted small">{dictionary.participants.teamAnalyticsMembersLabel}</span>
+              <span className="analytics-meta-value">{memberCount}</span>
+            </div>
+            <div className="analytics-meta-item">
+              <span className="muted small">{dictionary.participants.teamAnalyticsConnectedLabel}</span>
+              <span className="analytics-meta-value">{connectedMembers}</span>
+            </div>
+          </div>
+
+          {teamAnalyticsPanel.error && <div className="analytics-error">{teamAnalyticsPanel.error}</div>}
+          {teamAnalyticsPanel.loading && (
+            <div className="analytics-loading">{dictionary.participants.teamAnalyticsLoading}</div>
+          )}
+
+          {data && (
+            <>
+              <div className="analytics-section">
+                <div className="analytics-section-title">{dictionary.participants.teamAnalyticsAveragesTitle}</div>
+                {data.ratingAverages ? (
+                  <>
+                    <div className="analytics-metrics-grid">
+                      <div className="analytics-metric emphasis">
+                        <span>{dictionary.participants.teamAnalyticsOverallLabel}</span>
+                        <strong>{formatScore(data.ratingAverages.overall)}</strong>
+                        <div className="analytics-bar" aria-hidden>
+                          <span
+                            className="analytics-bar-fill"
+                            style={{ width: `${Math.min(100, (data.ratingAverages.overall / 10) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="analytics-metric">
+                        <span>{dictionary.participants.rateProjectPunctuality}</span>
+                        <strong>{formatScore(data.ratingAverages.punctuality)}</strong>
+                        <div className="analytics-bar" aria-hidden>
+                          <span
+                            className="analytics-bar-fill"
+                            style={{ width: `${Math.min(100, (data.ratingAverages.punctuality / 10) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="analytics-metric">
+                        <span>{dictionary.participants.rateProjectTeamwork}</span>
+                        <strong>{formatScore(data.ratingAverages.teamwork)}</strong>
+                        <div className="analytics-bar" aria-hidden>
+                          <span
+                            className="analytics-bar-fill"
+                            style={{ width: `${Math.min(100, (data.ratingAverages.teamwork / 10) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="analytics-metric">
+                        <span>{dictionary.participants.rateProjectQuality}</span>
+                        <strong>{formatScore(data.ratingAverages.quality)}</strong>
+                        <div className="analytics-bar" aria-hidden>
+                          <span
+                            className="analytics-bar-fill"
+                            style={{ width: `${Math.min(100, (data.ratingAverages.quality / 10) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="muted small">
+                      {t('participants.projectRatingsOverallCount', { count: data.ratingAverages.count })}
+                    </div>
+                  </>
+                ) : (
+                  <p className="analytics-section-empty">{dictionary.participants.teamAnalyticsAveragesEmpty}</p>
+                )}
+              </div>
+
+              <div className="analytics-section">
+                <div className="analytics-section-title">{dictionary.participants.teamAnalyticsOverdueTitle}</div>
+                {hasDeadlines && overdue ? (
+                  <div className="analytics-metric">
+                    <span>
+                      {t('participants.teamAnalyticsOverdueValue', {
+                        overdue: overdue.overdue,
+                        total: overdue.withDeadline,
+                        percent: sharePercent ?? '0%',
+                      })}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="analytics-section-empty">{dictionary.participants.teamAnalyticsOverdueEmpty}</p>
+                )}
+              </div>
+
+              <div className="analytics-section">
+                <div className="analytics-section-title">{dictionary.participants.teamAnalyticsTopTitle}</div>
+                {!hasTopPerformers && (
+                  <p className="analytics-section-empty">
+                    {teamAnalyticsPanel.selectedTagId
+                      ? dictionary.participants.teamAnalyticsTagNoMatches
+                      : dictionary.participants.teamAnalyticsTopEmpty}
+                  </p>
+                )}
+                {hasTopPerformers && (
+                  <ul className="analytics-top-list">
+                    {filteredTopPerformers.map((performer, index) => (
+                      <li key={performer.userId} className="analytics-top-item">
+                        <div className="analytics-top-head">
+                          <div>
+                            <div className="analytics-top-name">
+                              #{index + 1} · {performer.name || performer.email}
+                            </div>
+                            <div className="muted small">{performer.email}</div>
+                          </div>
+                          <div className="analytics-meta-value">{formatScore(performer.overall)}</div>
+                        </div>
+                        <div className="analytics-top-metrics">
+                          <span>
+                            {dictionary.participants.rateProjectPunctuality}: {formatScore(performer.punctuality)}
+                          </span>
+                          <span>
+                            {dictionary.participants.rateProjectTeamwork}: {formatScore(performer.teamwork)}
+                          </span>
+                          <span>
+                            {dictionary.participants.rateProjectQuality}: {formatScore(performer.quality)}
+                          </span>
+                        </div>
+                        <div className="muted small">
+                          {t('participants.performanceRatingsCount', { count: performer.ratingsCount })}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {hasTopPerformers && (
+                  <div className="analytics-section-table">
+                    <div className="analytics-section-title">
+                      {dictionary.participants.teamAnalyticsTableTitle}
+                    </div>
+                    <div className="analytics-table-wrapper">
+                      <table className="analytics-table">
+                        <thead>
+                          <tr>
+                            <th>{dictionary.participants.teamAnalyticsTableName}</th>
+                            <th>{dictionary.participants.teamAnalyticsTableOverall}</th>
+                            <th>{dictionary.participants.teamAnalyticsTableRatings}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredTopPerformers.map((performer) => (
+                            <tr key={`table-${performer.userId}`}>
+                              <td>{performer.name || performer.email}</td>
+                              <td>{formatScore(performer.overall)}</td>
+                              <td>{performer.ratingsCount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     );
   };
 
@@ -473,15 +859,24 @@ const renderPerformanceSummary = (summary?: TagPerformanceSummary[]) => {
                     <span className="list-name">{list.name}</span>
                     <span className="muted small">{t('participants.listMembersCount', { count: list.members.length })}</span>
                   </div>
-                  <button
-                    type="button"
-                    className="icon-button danger"
-                    onClick={() => handleDeleteList(list)}
-                    disabled={isDeleting}
-                  >
-                    <span aria-hidden>{isDeleting ? ICON_SPINNER : ICON_TRASH}</span>
-                    <span className="sr-only">{dictionary.participants.deleteList}</span>
-                  </button>
+                  <div className="list-header-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => openTeamAnalyticsPanel(list)}
+                    >
+                      {dictionary.participants.listAnalyticsButton}
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button danger"
+                      onClick={() => handleDeleteList(list)}
+                      disabled={isDeleting}
+                    >
+                      <span aria-hidden>{isDeleting ? ICON_SPINNER : ICON_TRASH}</span>
+                      <span className="sr-only">{dictionary.participants.deleteList}</span>
+                    </button>
+                  </div>
                 </div>
                 {list.members.length === 0 ? (
                   <p className="muted small">{dictionary.participants.listEmpty}</p>
@@ -702,6 +1097,7 @@ const renderPerformanceSummary = (summary?: TagPerformanceSummary[]) => {
         </div>
       </div>
       </div>
+      {renderTeamAnalyticsModal()}
       {ratingModal && (
         <div className="modal-overlay">
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="project-rating-title">

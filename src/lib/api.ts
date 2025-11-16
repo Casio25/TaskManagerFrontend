@@ -112,6 +112,38 @@ export type ProjectRatingAverages = {
   quality: number;
 };
 
+export type TeamAnalyticsTopPerformer = {
+  userId: number;
+  name: string;
+  email: string;
+  ratingsCount: number;
+  punctuality: number;
+  teamwork: number;
+  quality: number;
+  overall: number;
+};
+
+export type TeamAnalyticsResponse = {
+  list: {
+    id: number;
+    name: string;
+    members: number;
+    connectedMembers: number;
+  };
+  filters: {
+    from: string | null;
+    to: string | null;
+  };
+  ratingAverages: (ProjectRatingAverages & { overall: number }) | null;
+  taskOverdue: {
+    total: number;
+    withDeadline: number;
+    overdue: number;
+    share: number | null;
+  };
+  topPerformers: TeamAnalyticsTopPerformer[];
+};
+
 export type Colleague = {
   id: number;
   email: string;
@@ -334,6 +366,16 @@ export const api = {
     if (params?.to) query.append('to', params.to);
     const suffix = query.size ? `?${query.toString()}` : '';
     return http<CalendarTask[]>(`/calendar/project/${projectId}${suffix}`, { headers: getHeaders(true) });
+  },
+
+  teamAnalytics: (listId: number, params?: { from?: string; to?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.from) query.append('from', params.from);
+    if (params?.to) query.append('to', params.to);
+    const suffix = query.size ? `?${query.toString()}` : '';
+    return http<TeamAnalyticsResponse>(`/analytics/team/${listId}${suffix}`, {
+      headers: getHeaders(true),
+    });
   },
 
   deleteProject: (projectId: number) =>
